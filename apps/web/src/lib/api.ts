@@ -42,6 +42,8 @@ export const api = {
   presign: (data: any) => req(`/api/attachments/presign`, { method: "POST", body: JSON.stringify(data) }),
   search: (q: string, channelId?: string) => req(`/api/search?q=${encodeURIComponent(q)}${channelId ? `&channelId=${channelId}` : ""}`),
   invite: (wsId: string, email: string, role: string) => req(`/api/workspaces/${wsId}/invites`, { method: "POST", body: JSON.stringify({ email, role }) }),
+  addMember: (wsId: string, user: string) => req(`/api/workspaces/${wsId}/members`, { method: "POST", body: JSON.stringify({ user }) }),
+  members: (wsId: string) => req(`/api/workspaces/${wsId}/members`),
   acceptInvite: (token: string) => req(`/api/invites/${token}/accept`, { method: "POST" }),
   notifications: () => req(`/api/notifications`),
   markNotificationRead: (id: string) => req(`/api/notifications/${id}/read`, { method: "POST", body: JSON.stringify({}) }),

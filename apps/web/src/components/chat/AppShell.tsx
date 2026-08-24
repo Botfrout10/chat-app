@@ -22,6 +22,7 @@ export function AppShell() {
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [memberMsg, setMemberMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: () => api.me().catch(() => null) });
   const qc = useQueryClient();
@@ -128,13 +129,33 @@ export function AppShell() {
 
   async function doInvite() {
     setInviteError(null);
-    if (!activeWorkspaceId || !inviteEmail.trim()) { setInviteError("Email required"); return; }
+    if (!activeWorkspaceId || !inviteEmail.trim()) { setInviteError("Name or email required"); return; }
+    const q = inviteEmail.trim();
     try {
-      await api.invite(activeWorkspaceId, inviteEmail.trim(), "member");
+      // 1st: add existing user by exact name or email
+      const added: any = await api.addMember(activeWorkspaceId, q);
+      setMemberMsg({ kind: "ok", text: `Added ${added.name} ✓` });
       setInviteEmail("");
-      setShowInvite(false);
+      return;
     } catch (e: any) {
-      setInviteError(e.message?.slice(0, 200) ?? "Invite failed");
+      const raw = e.message ?? "";
+      let body = raw;
+      try { body = JSON.parse(raw)?.error ?? raw; } catch {}
+      const isNotFound = body.includes("USER_NOT_FOUND") || raw.includes("USER_NOT_FOUND") || /No registered user/i.test(body);
+      if (isNotFound && q.includes("@")) {
+        // fallback: email invite for someone not signed up yet
+        try {
+          const inv: any = await api.invite(activeWorkspaceId, q, "member");
+          setMemberMsg({ kind: "ok", text: `Invite created — share link ${inv.inviteUrl ?? "/invite/" + inv.token}` });
+          setInviteEmail("");
+        } catch (e2: any) {
+          setInviteError((e2.message ?? "Invite failed").slice(0, 200));
+        }
+        return;
+      }
+      if (/already a member/i.test(body)) { setInviteError(body); return; }
+      if (isNotFound) { setInviteError(`No user “${q}” found — ask them to sign up first.`); return; }
+      setInviteError(body.slice(0, 200) || "Failed to add member");
     }
   }
 
@@ -198,7 +219,7 @@ export function AppShell() {
                 </span>
               )}
             </button>
-            <button onClick={() => setShowInvite((v) => !v)} className="h-7 w-7 rounded-lg bg-white/10 hover:bg-white/15 text-sm border border-white/10">＋</button>
+            <button onClick={() => { setShowInvite((v) => !v); setInviteError(null); setMemberMsg(null); }} className="h-7 w-7 rounded-lg bg-white/10 hover:bg-white/15 text-sm border border-white/10">＋</button>
           </div>
         </div>
 
@@ -233,9 +254,11 @@ export function AppShell() {
 
         {showInvite && (
           <div className="p-3 border-b border-[var(--sidebar-border)] space-y-2 bg-black/10">
-            <Input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Invite by email" className="bg-white/5 border-white/10 text-white placeholder:text-white/40" />
-            {inviteError && <div className="text-xs text-amber-200">{inviteError}</div>}
-            <Button size="sm" className="w-full" onClick={doInvite}>Send invite</Button>
+            <Input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doInvite()} placeholder="Add by name or email" className="bg-white/5 border-white/10 text-white placeholder:text-white/40" />
+            {inviteError && <div className="text-xs text-amber-200 bg-amber-950/40 border border-amber-800/50 rounded-lg p-2">{inviteError}</div>}
+            {memberMsg && <div className={`text-xs rounded-lg p-2 border ${memberMsg.kind === "ok" ? "text-emerald-200 bg-emerald-950/40 border-emerald-800/50" : "text-red-200 bg-red-950/40 border-red-800/50"}`}>{memberMsg.text}</div>}
+            <Button size="sm" className="w-full" onClick={doInvite}>Add member</Button>
+            <div className="text-xs text-white/30">Exact name or email. Unknown emails get an invite link instead.</div>
           </div>
         )}
 
