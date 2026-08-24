@@ -13,6 +13,7 @@
     "ulid": "^3.0.1"
   },
   "devDependencies": {
+    "@types/node": "^26.2.0",
     "drizzle-kit": "^0.31.4",
     "typescript": "^5.9.3"
   },
