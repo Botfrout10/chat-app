@@ -4,6 +4,5 @@ dist
 .turbo
 .env
 .env.local
-drizzle
 *.log
 bun.lockb

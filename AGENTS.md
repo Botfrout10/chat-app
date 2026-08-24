@@ -20,9 +20,16 @@ bun run dev:web          # web only :3000
 bun run dev:api          # api only :3001 (needs docker up)
 docker compose up -d
 bun run db:push --filter=db
+bun run db:seed          # idempotent demo data (alice/bob/carol @pulse.dev, ws 'acme')
 bun run build
 bun run typecheck
 ```
+
+## Migrations
+
+- Dev: `drizzle-kit push` is fine.
+- Schema changes MUST also generate SQL: `bunx drizzle-kit generate` in `packages/db` → commit the file in `packages/db/drizzle/`.
+- Prod/fresh envs: `bun run db:migrate` applies `packages/db/drizzle/*.sql` in order.
 
 ## Env
 

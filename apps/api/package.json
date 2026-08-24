@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "bun dist/index.js",
     "typecheck": "tsc --noEmit",
+    "db:seed": "bun src/seed.ts",
     "db:push": "drizzle-kit push --config=../../packages/db/drizzle.config.ts"
   },
   "dependencies": {
