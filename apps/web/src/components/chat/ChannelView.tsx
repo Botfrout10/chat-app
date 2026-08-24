@@ -34,15 +34,19 @@ export function ChannelView({ channelId }: Props) {
 
   useEffect(() => {
     const s = connectSocket();
-    s.emit("join:channel", channelId);
+    const join = () => s.emit("join:channel", channelId);
+    if (s.connected) join();
+    s.on("connect", join);
+    // insert newest-first (pages are DESC); dedupe so socket echo of our own
+    // optimistic append doesn't duplicate the row
+    const upsert = (old: any, msg: any) => {
+      if (!old) return old;
+      const pages = old.pages.map((p: any) => ({ ...p, messages: p.messages.filter((m: any) => m.id !== msg.id) }));
+      pages[0] = { ...pages[0], messages: [msg, ...pages[0].messages] };
+      return { ...old, pages };
+    };
     const onNew = (msg: any) => {
-      qc.setQueryData(["messages", channelId], (old: any) => {
-        if (!old) return old;
-        const pages = [...old.pages];
-        const last = pages[pages.length - 1];
-        if (last) last.messages = [...last.messages, msg];
-        return { ...old, pages };
-      });
+      qc.setQueryData(["messages", channelId], (old: any) => upsert(old, msg));
       setTimeout(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }), 50);
     };
     const onUpdated = (msg: any) => {
@@ -66,6 +70,7 @@ export function ChannelView({ channelId }: Props) {
     s.on("reaction:update", () => qc.invalidateQueries({ queryKey: ["messages", channelId] }));
     return () => {
       s.emit("leave:channel", channelId);
+      s.off("connect", join);
       s.off("message:new", onNew);
       s.off("message", onNew);
       s.off("message:updated", onUpdated);
@@ -121,12 +126,21 @@ export function ChannelView({ channelId }: Props) {
     if (!input.trim() && attachmentKeys.length === 0) return;
     const content = input.trim() || (attachmentKeys.length ? "📎 Attachment" : "");
     const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const parentAtSend = replyTo;
     setInput("");
     setReplyTo(null);
     const keys = [...attachmentKeys];
     setAttachmentKeys([]);
     try {
-      await api.sendMessage(channelId, { content, parentId: replyTo, attachmentKeys: keys, nonce });
+      const saved: any = await api.sendMessage(channelId, { content, parentId: parentAtSend, attachmentKeys: keys, nonce });
+      // show instantly — don't wait for the socket echo
+      qc.setQueryData(["messages", channelId], (old: any) => {
+        if (!old || !saved?.id) return old;
+        const pages = old.pages.map((p: any) => ({ ...p, messages: p.messages.filter((m: any) => m.id !== saved.id) }));
+        pages[0] = { ...pages[0], messages: [saved, ...pages[0].messages] };
+        return { ...old, pages };
+      });
+      setTimeout(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }), 50);
       const s = getSocket();
       s.emit("typing:stop", { channelId });
     } catch (e) {
