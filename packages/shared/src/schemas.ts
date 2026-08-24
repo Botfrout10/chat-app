@@ -9,6 +9,11 @@ export const inviteSchema = z.object({
   role: z.enum(["admin", "member"]).default("member"),
 });
 
+export const addMemberSchema = z.object({
+  user: z.string().min(1).max(120),
+  role: z.enum(["admin", "member"]).default("member"),
+});
+
 export const createChannelSchema = z.object({
   name: z.string().min(2).max(50).regex(/^[a-z0-9-_]+$/, "lowercase letters, numbers, - _ only"),
   type: z.enum(["public", "private", "group", "dm"]).default("public"),

@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { ulid } from "ulid";
-import { eq, and } from "drizzle-orm";
-import { workspace, workspaceMember, channel, channelMember } from "@chat/db/schema";
-import { createWorkspaceSchema, inviteSchema } from "@chat/shared/schemas";
+import { eq, and, or, sql } from "drizzle-orm";
+import { workspace, workspaceMember, channel, channelMember, user as userTable } from "@chat/db/schema";
+import { createWorkspaceSchema, inviteSchema, addMemberSchema } from "@chat/shared/schemas";
 import { slugify } from "@chat/shared/utils";
 
 export async function registerWorkspaceRoutes(app: FastifyInstance) {
@@ -68,10 +68,45 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
     const rows = await db
       .select()
       .from(workspaceMember)
-      .innerJoin((await import("@chat/db/schema")).user, eq(workspaceMember.userId, (await import("@chat/db/schema")).user.id))
+      .innerJoin(userTable, eq(workspaceMember.userId, userTable.id))
       .where(eq(workspaceMember.workspaceId, id));
-    // drizzle join shape handling
     return rows.map((r: any) => ({ ...r.user, role: r.workspace_member.role, joinedAt: r.workspace_member.joinedAt }));
+  });
+
+  // add an existing registered user to the workspace by name or email
+  app.post("/api/workspaces/:id/members", async (req, reply) => {
+    const actor = await (app as any).getSessionUser(req);
+    if (!actor) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const parsed = addMemberSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    const db = (app as any).db;
+
+    const [actorRow] = await db.select().from(workspaceMember).where(and(eq(workspaceMember.workspaceId, id), eq(workspaceMember.userId, actor.id)));
+    if (!actorRow || (actorRow.role !== "owner" && actorRow.role !== "admin")) {
+      return reply.code(403).send({ error: "Only owner/admin can add members" });
+    }
+
+    const q = parsed.data.user.trim();
+    const candidates = await db
+      .select()
+      .from(userTable)
+      .where(or(sql`lower(${userTable.name}) = lower(${q})`, sql`lower(${userTable.email}) = lower(${q})`))
+      .limit(2);
+    const target = candidates[0];
+    if (!target) {
+      return reply.code(404).send({ error: `No registered user found for “${q}”`, code: "USER_NOT_FOUND" });
+    }
+
+    const [already] = await db.select().from(workspaceMember).where(and(eq(workspaceMember.workspaceId, id), eq(workspaceMember.userId, target.id)));
+    if (already) return reply.code(409).send({ error: `${target.name} is already a member`, code: "ALREADY_MEMBER" });
+
+    await db.insert(workspaceMember).values({ workspaceId: id, userId: target.id, role: parsed.data.role });
+    const publicChannels = await db.select().from(channel).where(and(eq(channel.workspaceId, id), eq(channel.type, "public")));
+    for (const c of publicChannels) {
+      await db.insert(channelMember).values({ channelId: c.id, userId: target.id }).onConflictDoNothing();
+    }
+    return { id: target.id, name: target.name, email: target.email, role: parsed.data.role };
   });
 
   app.post("/api/workspaces/:id/invites", async (req, reply) => {
