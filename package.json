@@ -1,0 +1,25 @@
+{
+  "name": "chat-app",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "dev:web": "turbo run dev --filter=web",
+    "dev:api": "turbo run dev --filter=api",
+    "db:generate": "turbo run db:generate --filter=@chat/db",
+    "db:migrate": "turbo run db:migrate --filter=@chat/db",
+    "db:push": "turbo run db:push --filter=@chat/db",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.4",
+    "typescript": "^5.9.3"
+  },
+  "packageManager": "bun@1.3.14"
+}
