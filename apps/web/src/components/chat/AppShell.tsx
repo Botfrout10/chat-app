@@ -16,6 +16,7 @@ export function AppShell() {
   const { workspaces, activeWorkspaceId, channels, activeChannelId, setWorkspaces, setActiveWorkspace, setChannels, setActiveChannel } = useChatStore();
   const [newWsName, setNewWsName] = useState("");
   const [newChannelName, setNewChannelName] = useState("");
+  const [newChannelPrivate, setNewChannelPrivate] = useState(false);
   const [wsError, setWsError] = useState<string | null>(null);
   const [chError, setChError] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
@@ -120,7 +121,7 @@ export function AppShell() {
     const normalized = slugify(raw);
     if (normalized.length < 2) { setChError("Use 2+ letters, a-z 0-9 - _ only (spaces become -)"); return; }
     try {
-      await api.createChannel(activeWorkspaceId, { name: normalized, type: "public" });
+      await api.createChannel(activeWorkspaceId, { name: normalized, type: newChannelPrivate ? "private" : "public" });
       setNewChannelName("");
       const chs = await api.channels(activeWorkspaceId);
       setChannels(chs as any);
@@ -344,7 +345,7 @@ export function AppShell() {
                   onClick={() => setActiveChannel(c.id)}
                   className={`w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-2 border ${activeChannelId === c.id ? "bg-[var(--primary)] text-[var(--primary-foreground)] border-transparent shadow-[var(--shadow-soft)]" : "text-white/60 border-transparent hover:bg-white/5 hover:text-white"}`}
                 >
-                  <span className="text-xs opacity-70">{c.type === "dm" ? "@" : "#"}</span>
+                  <span className="text-xs opacity-70">{c.type === "dm" ? "@" : c.type === "private" ? "🔒" : "#"}</span>
                   <span className="truncate flex-1">{c.type === "dm" ? c.dmPeer?.name ?? "direct message" : c.name}</span>
                   {c.lastReadMessageId ? null : <span className="h-2 w-2 rounded-full bg-[var(--accent)] shrink-0 ml-auto" title="Unread" />}
                 </button>
@@ -354,6 +355,10 @@ export function AppShell() {
             <div className="mt-3 space-y-1">
               <div className="flex gap-1">
                 <input value={newChannelName} onChange={(e) => setNewChannelName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createChannel()} placeholder="new-channel (a-z, 0-9, -)" className="flex-1 h-7 rounded-lg bg-white/5 border border-white/10 px-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:border-[var(--primary)]" />
+                <label title="Private channel — invite only" className="h-7 flex items-center gap-1 rounded-lg bg-white/5 border border-white/10 px-2 text-xs text-white/70 cursor-pointer select-none">
+                  <input type="checkbox" checked={newChannelPrivate} onChange={(e) => setNewChannelPrivate(e.target.checked)} className="accent-[var(--primary)] h-3 w-3" />
+                  🔒
+                </label>
                 <Button size="sm" onClick={createChannel} className="h-7 px-3">+</Button>
               </div>
               {chError && <div className="text-xs text-red-200 bg-red-950/30 border border-red-800/50 rounded-lg p-2">{chError}</div>}

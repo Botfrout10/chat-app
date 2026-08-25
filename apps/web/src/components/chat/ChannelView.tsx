@@ -53,7 +53,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     for (const c of (llmConnections as any[]) ?? []) map.set(c.id, c.label);
     return map;
   }, [llmConnections]);
-  const [stream, setStream] = useState<{ connectionId: string; text: string } | null>(null);
+  const [stream, setStream] = useState<{ connectionId: string; text: string; thinking: string } | null>(null);
   const [llmTyping, setLlmTyping] = useState<string | null>(null); // connectionId
 
   useEffect(() => {
@@ -119,7 +119,13 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       if (p.channelId !== channelId) return;
       setLlmTyping(p.isTyping ? p.connectionId : null);
       if (!p.isTyping) return;
-      setStream({ connectionId: p.connectionId, text: "" });
+      setStream({ connectionId: p.connectionId, text: "", thinking: "" });
+    };
+    const onLlmThinking = (p: any) => {
+      if (p.channelId !== channelId || !p.delta) return;
+      setStream((cur) =>
+        cur && cur.connectionId === p.connectionId ? { ...cur, thinking: cur.thinking + p.delta } : cur,
+      );
     };
     const onLlmDelta = (p: any) => {
       if (p.channelId !== channelId || !p.delta) return;
@@ -134,10 +140,12 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       setStream((cur) => (cur?.connectionId === p.connectionId ? null : cur));
     };
     s.on("llm:typing", onLlmTyping);
+    s.on("llm:thinking", onLlmThinking);
     s.on("llm:delta", onLlmDelta);
     s.on("llm:error", onLlmError);
     return () => {
       s.off("llm:typing", onLlmTyping);
+      s.off("llm:thinking", onLlmThinking);
       s.off("llm:delta", onLlmDelta);
       s.off("llm:error", onLlmError);
     };
@@ -351,6 +359,14 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
               <div className="text-xs font-semibold text-[var(--foreground)]">
                 {connLabel.get(stream.connectionId) ?? "AI"} <span className="font-normal text-[var(--muted-foreground)]">{stream.text ? "is writing…" : "is thinking…"}</span>
               </div>
+              {!!stream.thinking && (
+                <details className="mt-1" open={!stream.text}>
+                  <summary className="cursor-pointer select-none text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]">🧠 Thinking</summary>
+                  <div className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words border-l-2 border-[var(--border)] pl-3 text-xs text-[var(--muted-foreground)]">
+                    {stream.thinking}
+                  </div>
+                </details>
+              )}
               {stream.text && (
                 <div className="mt-1 text-sm text-[var(--foreground)] whitespace-pre-wrap break-words">
                   {stream.text}

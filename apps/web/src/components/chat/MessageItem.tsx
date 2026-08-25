@@ -6,6 +6,7 @@ import { RichText, AttachmentPreview } from "./RichText";
 type Msg = {
   id: string;
   content: string;
+  reasoning?: string | null;
   senderId: string;
   sender?: { name: string; image?: string | null };
   createdAt: string;
@@ -63,6 +64,17 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
           <span className="text-xs text-[var(--muted-foreground)]">{time}</span>
           {msg.editedAt && <span className="text-xs text-[var(--muted-foreground)]">(edited)</span>}
         </div>
+
+        {msg.reasoning ? (
+          <details className="mt-1 mb-1">
+            <summary className="cursor-pointer select-none text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+              🧠 Thinking
+            </summary>
+            <div className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words border-l-2 border-[var(--border)] pl-3 text-xs text-[var(--muted-foreground)]">
+              {msg.reasoning}
+            </div>
+          </details>
+        ) : null}
 
         {editing ? (
           <div className="mt-1 flex gap-2">
