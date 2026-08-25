@@ -67,7 +67,7 @@ export function AppShell() {
       <AppSidebar />
 
       {/* main */}
-      <div className="flex-1 flex flex-col min-w-0 bg-[var(--background)]">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden bg-[var(--background)]">
         {activeChannelId ? (
           <ChannelView
             key={activeChannelId}

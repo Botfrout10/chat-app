@@ -35,7 +35,7 @@ export default function Home() {
   const isAuthed = !!(me as any)?.id;
 
   return (
-    <div className="flex flex-col flex-1 h-screen overflow-hidden bg-[var(--background)]">
+    <div className="flex flex-col flex-1 h-dvh overflow-hidden bg-[var(--background)]">
 
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <div className={`flex-1 grid min-h-0 overflow-hidden ${isAuthed ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-[420px_1fr]"}`}>

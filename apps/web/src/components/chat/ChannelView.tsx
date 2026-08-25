@@ -359,9 +359,9 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         </div>
       </div>
 
-      <Conversation className="bg-[var(--background)]">
+      <Conversation className="min-h-0 bg-[var(--background)]">
         <AtBottomSync isAtBottomRef={isAtBottomRef} />
-        <ConversationContent className="mx-auto w-full max-w-3xl gap-0 px-4 py-2">
+        <ConversationContent className="w-full gap-0 px-4 py-2">
           {allMessages.length === 0 ? (
             <ConversationEmptyState
               icon={
@@ -409,7 +409,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="relative border-t border-[var(--border)] p-3 bg-[var(--card)] shrink-0 mx-auto w-full max-w-3xl">
+      <div className="relative border-t border-[var(--border)] p-3 bg-[var(--card)] shrink-0 w-full">
         {replyTo && (
           <div className="mb-2 text-xs text-[var(--primary)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2 flex items-center gap-1">
             <CornerDownLeft className="h-3 w-3" /> Replying to {replyTo.slice(0, 8)}
