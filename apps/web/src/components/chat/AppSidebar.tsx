@@ -33,7 +33,7 @@ import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 
 function SectionHeader({ label, onAdd, addTitle }: { label: string; onAdd?: () => void; addTitle?: string }) {
   return (
-    <div className="flex items-center justify-between px-3 pt-4 pb-1">
+    <div className="flex items-center justify-between px-2 pt-4 pb-1">
       <span className="text-[11px] font-semibold tracking-widest text-white/40">{label}</span>
       {onAdd && (
         <button
@@ -65,7 +65,7 @@ function SidebarButton({
     <button
       onClick={onClick}
       title={title}
-      className={`w-full text-left mx-2 px-2 py-1.5 rounded-[var(--radius-md)] text-sm flex items-center gap-2 ${
+      className={`w-full text-left px-2 py-1.5 rounded-[var(--radius-md)] text-sm flex items-center gap-2 ${
         active
           ? "bg-[var(--primary)] text-[var(--primary-foreground)] shadow-[var(--shadow-soft)]"
           : "text-white/60 hover:bg-white/5 hover:text-white"
@@ -194,9 +194,9 @@ export function AppSidebar() {
       </div>
 
       {/* scrollable sections */}
-      <div className="flex-1 overflow-y-auto pb-2 space-y-0.5">
+      <div className="flex-1 overflow-y-auto pb-2 px-2 space-y-0.5">
         <SectionHeader label="CHANNELS" onAdd={() => openDialog("createChannel")} addTitle="Create a channel" />
-        <div className="space-y-0.5 px-0">
+        <div className="space-y-0.5">
           {channelList.map((c) => (
             <SidebarButton
               key={c.id}
@@ -210,14 +210,14 @@ export function AppSidebar() {
             </SidebarButton>
           ))}
           {channelList.length === 0 && (
-            <div className="mx-2 text-xs text-white/40">No channels yet.</div>
+            <div className="px-2 text-xs text-white/40">No channels yet.</div>
           )}
         </div>
 
         <SectionHeader label="DIRECT MESSAGES" onAdd={() => openDialog("newDm")} addTitle="New direct message" />
         <div className="space-y-0.5">
           {dmCandidates.length === 0 && (
-            <div className="mx-2 text-xs text-white/40">No other members yet.</div>
+            <div className="px-2 text-xs text-white/40">No other members yet.</div>
           )}
           {dmCandidates.map((m: any) => (
             <SidebarButton key={m.id} active={activeChannelId === dmChannelId(channels, m.id)} onClick={() => openDm(m.id)} title={m.name}>
@@ -235,7 +235,7 @@ export function AppSidebar() {
         <SectionHeader label="AI MODELS" onAdd={() => openDialog("llmManager")} addTitle="Connect / manage models" />
         <div className="space-y-0.5">
           {((llmConnections as any[]) ?? []).length === 0 && (
-            <div className="mx-2 text-xs text-white/40">No models connected.</div>
+            <div className="px-2 text-xs text-white/40">No models connected.</div>
           )}
           {((llmConnections as any[]) ?? []).map((c: any) => (
             <SidebarButton key={c.id} onClick={() => openLlmDm(c.id)} title={`${c.modelId} — open chat`}>
