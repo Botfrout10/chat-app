@@ -74,8 +74,8 @@ Chat with LLMs; delegate real work to external agents. **Connect-only**: the app
 
 ### Phase A — LLMs (chatting)
 
-- [ ] DB: `llm_connection` table — owner user, label, base URL, model id, verified capabilities (tools/vision/context), status
-- [ ] API: register/update/delete connection → validate by fetching provider `/v1/models` and matching the model name; store discovered capabilities
+- [x] DB: `llm_connection` table — owner user, label, base URL, model id, verified capabilities (tools/vision/context), status
+- [x] API: register/update/delete connection → validate by fetching provider `/v1/models` and matching the model name; store discovered capabilities (`POST /api/llm/connections`, `PATCH`/`DELETE /api/llm/connections/:id`, `POST .../:id/verify`, `GET .../:id/status`; baseUrl normalized to versioned `/v1`, model existence checked with "Available: …" error)
 - [ ] API: completion proxy with **streaming relay** into Socket.IO room `channel:<id>` (timeouts + client-abort handled server-side)
 - [ ] Per-connection DM chat (reuse DM find-or-create; conversation history = normal `message` rows, `senderType: 'llm'`)
 - [ ] Mention-triggered replies in channels/threads: `@model-name …` → completion with channel/thread context window; responses persist as messages so search/notifications work unchanged
