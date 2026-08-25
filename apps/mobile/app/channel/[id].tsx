@@ -43,7 +43,6 @@ export default function ChannelView() {
   const me = meQuery.data ?? null;
 
   const blocker = useRequireSession();
-  if (blocker) return blocker;
 
   const messagesQuery = useMessages(channelId);
   const typingUsers = useChatStore((s) => s.typingUsers[channelId] ?? NO_TYPING);
@@ -204,6 +203,10 @@ export default function ChannelView() {
     );
     return actions;
   }, [sheetFor, me?.id, router, params.name]);
+
+  // Session guard — must stay BELOW all hooks so the hook order is stable
+  // whether or not the blocker short-circuits the render.
+  if (blocker) return blocker;
 
   const typingLabel =
     typingUsers.length === 0
