@@ -3,11 +3,13 @@ import { Tabs } from "expo-router";
 
 import { useNotifications } from "@/hooks/queries";
 import { useRequireSession } from "@/hooks/useRequireSession";
+import { useSession } from "@/lib/session";
 import { useTheme } from "@/theme/useTheme";
 
 export default function TabsLayout() {
   const t = useTheme();
-  const notifQuery = useNotifications();
+  const { token } = useSession();
+  const notifQuery = useNotifications(20_000, !!token);
   const unread = notifQuery.data?.unread ?? 0;
 
   const blocker = useRequireSession();

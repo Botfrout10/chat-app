@@ -44,11 +44,12 @@ export function useReplies(parentId: string | null) {
   });
 }
 
-export function useNotifications(pollMs = 20_000) {
+export function useNotifications(pollMs = 20_000, enabled = true) {
   return useQuery({
     queryKey: ["notifications"],
     queryFn: () => api.notifications(),
     refetchInterval: pollMs,
+    enabled,
   });
 }
 
