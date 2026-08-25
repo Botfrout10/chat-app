@@ -1,0 +1,250 @@
+import type { FastifyInstance } from "fastify";
+import { createHash } from "node:crypto";
+import { ulid } from "ulid";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import {
+  llmConnection,
+  channel,
+  channelMember,
+  message,
+  user as userTable,
+} from "@chat/db/schema";
+
+const CONTEXT_MESSAGES = 20;
+const GENERATION_TIMEOUT_MS = 120_000;
+const BOT_EMAIL_DOMAIN = "llm.local";
+
+export type LlmConnectionRow = typeof llmConnection.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Bot user: each connection gets a synthetic user that authors its replies so
+// AI messages are ordinary `message` rows (joins, search, notifications work).
+// ---------------------------------------------------------------------------
+
+export function botEmailFor(connectionId: string): string {
+  return `llm+${connectionId}@${BOT_EMAIL_DOMAIN}`;
+}
+
+export async function ensureBotUser(app: FastifyInstance, conn: LlmConnectionRow) {
+  const db = (app as any).db;
+  if (conn.botUserId) {
+    const [existing] = await db.select().from(userTable).where(eq(userTable.id, conn.botUserId));
+    if (existing) return existing;
+  }
+  const [created] = await db
+    .insert(userTable)
+    .values({ id: ulid(), name: conn.label, email: botEmailFor(conn.id) })
+    .onConflictDoNothing()
+    .returning();
+  const bot = created ?? (await db.select().from(userTable).where(eq(userTable.email, botEmailFor(conn.id))))[0];
+  await db.update(llmConnection).set({ botUserId: bot.id }).where(eq(llmConnection.id, conn.id));
+  conn.botUserId = bot.id;
+  return bot;
+}
+
+// ---------------------------------------------------------------------------
+// Provider call — OpenAI-compatible chat completions with SSE streaming
+// ---------------------------------------------------------------------------
+
+type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+async function* streamChatCompletion(
+  conn: LlmConnectionRow,
+  messages: ChatMessage[],
+): AsyncGenerator<string> {
+  const res = await fetch(`${conn.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    body: JSON.stringify({ model: conn.modelId, messages, stream: true }),
+    signal: AbortSignal.timeout(GENERATION_TIMEOUT_MS),
+  });
+  if (!res.ok || !res.body) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Provider responded ${res.status}: ${detail.slice(0, 300)}`);
+  }
+
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (payload === "[DONE]") return;
+      try {
+        const chunk = JSON.parse(payload);
+        const delta = chunk?.choices?.[0]?.delta?.content;
+        if (typeof delta === "string" && delta) yield delta;
+      } catch {
+        // partial/keepalive line — ignore
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reply orchestration — one generation at a time per connection
+// ---------------------------------------------------------------------------
+
+const generating = new Set<string>(); // connection ids currently mid-generation
+
+async function assembleContext(db: any, conn: LlmConnectionRow, channelId: string): Promise<ChatMessage[]> {
+  const rows = await db
+    .select({ senderId: message.senderId, content: message.content })
+    .from(message)
+    .where(and(eq(message.channelId, channelId), isNull(message.deletedAt)))
+    .orderBy(desc(message.id))
+    .limit(CONTEXT_MESSAGES);
+  const history = rows.reverse();
+  // sender names help the model follow multi-party conversations
+  const ids: string[] = [...new Set<string>(history.map((r: any) => r.senderId))];
+  const senders = ids.length
+    ? await db.select({ id: userTable.id, name: userTable.name }).from(userTable).where(inArray(userTable.id, ids))
+    : [];
+  const names = new Map(senders.map((u: any) => [u.id, u.name]));
+  const chats: ChatMessage[] = [
+    {
+      role: "system",
+      content:
+        `You are "${conn.label}" (mention as @${conn.mentionName}), an AI assistant inside a team chat app. ` +
+        `Reply concisely. Messages are prefixed with their author's name when known.`,
+    },
+    ...history.map((r: any) => ({
+      role: r.senderId === conn.botUserId ? ("assistant" as const) : ("user" as const),
+      content: r.senderId === conn.botUserId ? r.content : `${names.get(r.senderId) ?? "user"}: ${r.content}`,
+    })),
+  ];
+  return chats;
+}
+
+export async function triggerLlmReply(
+  app: FastifyInstance,
+  args: { conn: LlmConnectionRow; channelId: string },
+): Promise<boolean> {
+  const db = (app as any).db;
+  const redis = (app as any).redis;
+
+  if (!args.conn.botUserId) await ensureBotUser(app, args.conn);
+  if (generating.has(args.conn.id)) return false; // one generation at a time per connection
+  generating.add(args.conn.id);
+
+  // typing indicator for the duration of generation
+  await redis.publish("chat:events", JSON.stringify({
+    type: "llm:typing", channelId: args.channelId, connectionId: args.conn.id, isTyping: true,
+  }));
+
+  try {
+    const messages = await assembleContext(db, args.conn, args.channelId);
+    let full = "";
+    for await (const delta of streamChatCompletion(args.conn, messages)) {
+      full += delta;
+      await redis.publish("chat:events", JSON.stringify({
+        type: "llm:delta", channelId: args.channelId, connectionId: args.conn.id, delta,
+      }));
+    }
+    if (!full.trim()) throw new Error("Provider returned an empty completion");
+
+    const id = ulid();
+    const [msg] = await db
+      .insert(message)
+      .values({ id, channelId: args.channelId, senderId: args.conn.botUserId!, content: full.trim() })
+      .returning();
+    const [bot] = await db.select().from(userTable).where(eq(userTable.id, args.conn.botUserId!));
+    const withSender = { ...msg, sender: bot, attachments: [], reactions: [] };
+    await redis.publish("chat:events", JSON.stringify({
+      type: "message:new", channelId: args.channelId, llmConnectionId: args.conn.id, message: withSender,
+    }));
+    return true;
+  } catch (e) {
+    app.log.error(`llm generation failed (${args.conn.label}): ${(e as Error).message}`);
+    await redis.publish("chat:events", JSON.stringify({
+      type: "llm:error", channelId: args.channelId, connectionId: args.conn.id, error: (e as Error).message,
+    }));
+    return false;
+  } finally {
+    generating.delete(args.conn.id);
+    await redis.publish("chat:events", JSON.stringify({
+      type: "llm:typing", channelId: args.channelId, connectionId: args.conn.id, isTyping: false,
+    }));
+  }
+}
+
+// Decide whether a just-sent human message should wake an LLM:
+// - DM channels where the peer is a bot user owned by the sender → always reply
+// - @mentionName tokens matching connections owned by the sender → reply once each
+export async function maybeTriggerLlm(
+  app: FastifyInstance,
+  args: { channel: typeof channel.$inferSelect; senderId: string; content: string },
+) {
+  try {
+    const db = (app as any).db;
+    const conns: LlmConnectionRow[] = await db
+      .select()
+      .from(llmConnection)
+      .where(eq(llmConnection.ownerId, args.senderId));
+    if (!conns.length) return;
+
+    const byBot = new Map(conns.filter((c) => c.botUserId).map((c) => [c.botUserId!, c]));
+
+    // DM auto-reply: peer is a bot user of one of my connections
+    if (args.channel.type === "dm") {
+      const members = await db
+        .select({ userId: channelMember.userId })
+        .from(channelMember)
+        .where(eq(channelMember.channelId, args.channel.id));
+      const peer = members.find((m: any) => m.userId !== args.senderId);
+      if (peer && byBot.has(peer.userId)) {
+        void triggerLlmReply(app, { conn: byBot.get(peer.userId)!, channelId: args.channel.id });
+        return;
+      }
+    }
+
+    // mention-triggered: match my connections' mention names against @tokens
+    const tokens = new Set((args.content.match(/@([\p{L}\p{N}_.-]+)/gu) ?? []).map((t) => t.slice(1).toLowerCase()));
+    if (!tokens.size) return;
+    for (const conn of conns) {
+      if (tokens.has(conn.mentionName.toLowerCase())) {
+        void triggerLlmReply(app, { conn, channelId: args.channel.id });
+      }
+    }
+  } catch (e) {
+    app.log.error(`llm trigger check failed: ${(e as Error).message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-connection DM channel (find-or-create, mirrors human DM naming)
+// ---------------------------------------------------------------------------
+
+export async function findOrCreateLlmDm(app: FastifyInstance, conn: LlmConnectionRow, userId: string, workspaceId: string) {
+  const db = (app as any).db;
+  const bot = await ensureBotUser(app, conn);
+  const pair = [userId, bot.id].sort().join(":");
+  const name = `dm-${createHash("sha1").update(pair).digest("hex").slice(0, 12)}`;
+
+  const [existing] = await db
+    .select()
+    .from(channel)
+    .where(and(eq(channel.workspaceId, workspaceId), eq(channel.type, "dm"), eq(channel.name, name)));
+  if (existing) return { ...existing, created: false };
+
+  const chId = ulid();
+  const [ch] = await db
+    .insert(channel)
+    .values({ id: chId, workspaceId, name, type: "dm", createdBy: userId })
+    .returning();
+  await db
+    .insert(channelMember)
+    .values([
+      { channelId: chId, userId },
+      { channelId: chId, userId: bot.id },
+    ])
+    .onConflictDoNothing();
+  return { ...ch, created: true };
+}

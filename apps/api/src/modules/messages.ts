@@ -4,6 +4,7 @@ import { and, eq, lt, gt, desc, asc, sql } from "drizzle-orm";
 import { message, channelMember, channel, reaction, attachment, workspaceMember, mention } from "@chat/db/schema";
 import { sendMessageSchema, editMessageSchema, reactionSchema } from "@chat/shared/schemas";
 import { enforceRate } from "../lib/rateLimit.js";
+import { maybeTriggerLlm } from "../lib/llm.js";
 
 export async function registerMessageRoutes(app: FastifyInstance) {
   // list messages with cursor pagination: ?before=<ulid>&after=<ulid>&limit=50
@@ -180,6 +181,9 @@ export async function registerMessageRoutes(app: FastifyInstance) {
     } catch (e) {
       app.log.error(`enqueue notification failed: ${(e as Error).message}`);
     }
+
+    // wake connected LLMs (DM peer or personal @mention) — fire-and-forget
+    void maybeTriggerLlm(app, { channel: ch, senderId: user.id, content: parsed.data.content });
 
     return withSender;
   });

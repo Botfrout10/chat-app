@@ -47,6 +47,8 @@ export function setupSocket(io: Server, deps: { db: Db; redis: Redis; auth: Auth
         io.to(`channel:${evt.channelId}`).emit("read:receipt", evt);
       } else if (evt.type === "notification:new") {
         io.to(`user:${evt.userId}`).emit("notification:new", evt.notification);
+      } else if (evt.type === "llm:delta" || evt.type === "llm:typing" || evt.type === "llm:error") {
+        io.to(`channel:${evt.channelId}`).emit(evt.type, evt);
       }
     } catch {}
   });

@@ -1,10 +1,12 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { ulid } from "ulid";
 import { and, asc, eq } from "drizzle-orm";
-import { llmConnection } from "@chat/db/schema";
+import { llmConnection, workspaceMember } from "@chat/db/schema";
 import { createLlmConnectionSchema, updateLlmConnectionSchema } from "@chat/shared/schemas";
 import { slugify } from "@chat/shared/utils";
 import { enforceRate } from "../lib/rateLimit.js";
+import { findOrCreateLlmDm } from "../lib/llm.js";
 
 const VERIFY_TIMEOUT_MS = 5_000;
 
@@ -173,6 +175,24 @@ export async function registerLlmRoutes(app: FastifyInstance) {
       .where(eq(llmConnection.id, id))
       .returning();
     return updated;
+  });
+
+  // find-or-create the owner's DM channel with this model (inside a workspace)
+  app.post("/api/llm/connections/:id/dm", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const parsed = z.object({ workspaceId: z.string().min(1) }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    const dbi = db();
+
+    const [conn] = await dbi.select().from(llmConnection).where(and(eq(llmConnection.id, id), eq(llmConnection.ownerId, user.id)));
+    if (!conn) return reply.code(404).send({ error: "Connection not found" });
+    const [ws] = await dbi.select().from(workspaceMember).where(and(eq(workspaceMember.workspaceId, parsed.data.workspaceId), eq(workspaceMember.userId, user.id)));
+    if (!ws) return reply.code(403).send({ error: "Forbidden" });
+
+    const ch = await findOrCreateLlmDm(app, conn, user.id, parsed.data.workspaceId);
+    return { ...ch, llmConnectionId: conn.id, modelLabel: conn.label };
   });
 
   // status page detail: connection + live snapshot of what the provider offers
