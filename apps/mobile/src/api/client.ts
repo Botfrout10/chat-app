@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import type {
   AppNotification,
   Channel,
+  LlmConnection,
   Member,
   Message,
   MessagesPage,
@@ -159,6 +160,14 @@ export const api = {
     req<SearchResult[]>(
       `/api/search?q=${encodeURIComponent(q)}${channelId ? `&channelId=${channelId}` : ""}`,
     ),
+
+  // AI model connections
+  llmConnections: () => req<LlmConnection[]>("/api/llm/connections"),
+  createLlmDm: (connectionId: string, workspaceId: string) =>
+    req<Channel & { created: boolean }>(`/api/llm/connections/${connectionId}/dm`, {
+      method: "POST",
+      body: JSON.stringify({ workspaceId }),
+    }),
 };
 
 export { ApiError };

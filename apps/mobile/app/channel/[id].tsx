@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -48,6 +48,13 @@ export default function ChannelView() {
   const messagesQuery = useMessages(channelId);
   const typingUsers = useChatStore((s) => s.typingUsers[channelId] ?? NO_TYPING);
   const presence = useChatStore((s) => s.presence);
+  const llmStream = useChatStore((s) => s.llmStreams[channelId]);
+  const llmQuery = useQuery({
+    queryKey: ["llm-connections"],
+    queryFn: () => api.llmConnections(),
+    enabled: !!llmStream,
+  });
+  const llmLabel = llmQuery.data?.find((c) => c.id === llmStream?.connectionId)?.label;
 
   const [composerState, setComposerState] = useState<ComposerState>({ kind: "idle" });
   const [sheetFor, setSheetFor] = useState<Message | null>(null);
@@ -276,6 +283,18 @@ export default function ChannelView() {
               {sendError} — tap to dismiss
             </Text>
           </Pressable>
+        )}
+        {!!llmStream && (
+          <View style={{ paddingHorizontal: 14, paddingBottom: 4 }}>
+            <Text style={{ color: t.mutedForeground, fontSize: 12, fontWeight: "600" }}>
+              ✦ {llmLabel ?? "AI"} {llmStream.text ? "is writing…" : "is thinking…"}
+            </Text>
+            {!!llmStream.text && (
+              <Text style={{ color: t.foreground, fontSize: 13, marginTop: 2 }} numberOfLines={6}>
+                {llmStream.text}
+              </Text>
+            )}
+          </View>
         )}
         {!!typingLabel && (
           <Text style={{ color: t.mutedForeground, fontSize: 12, paddingHorizontal: 14, paddingBottom: 2 }}>

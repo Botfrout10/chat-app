@@ -18,7 +18,7 @@ import { useChannels, useMembers, useWorkspaces } from "@/hooks/queries";
 import { channelTitle, initials, isDmLike } from "@/lib/channelTitle";
 import { useChatStore } from "@/stores/chat";
 import { useTheme } from "@/theme/useTheme";
-import type { Channel } from "@/types";
+import type { Channel, LlmConnection } from "@/types";
 
 export default function Chats() {
   const t = useTheme();
@@ -58,6 +58,29 @@ export default function Chats() {
   const channels = channelsQuery.data ?? [];
   const channelList = channels.filter((c) => !isDmLike(c));
   const dmList = channels.filter(isDmLike);
+
+  // AI model connections
+  const llmQuery = useQuery({
+    queryKey: ["llm-connections"],
+    queryFn: () => api.llmConnections(),
+    enabled: !!activeWorkspaceId,
+  });
+  const [llmOpening, setLlmOpening] = useState<string | null>(null);
+  const [llmError, setLlmError] = useState<string | null>(null);
+  async function openLlmDm(conn: LlmConnection) {
+    if (!activeWorkspaceId) return;
+    setLlmOpening(conn.id);
+    setLlmError(null);
+    try {
+      const ch = await api.createLlmDm(conn.id, activeWorkspaceId);
+      await queryClient.invalidateQueries({ queryKey: ["channels", activeWorkspaceId] });
+      router.push({ pathname: "/channel/[id]", params: { id: ch.id, name: conn.label, type: "dm" } });
+    } catch (e) {
+      setLlmError(e instanceof Error ? e.message : "Failed to open model chat");
+    } finally {
+      setLlmOpening(null);
+    }
+  }
 
   const activeWs = workspacesQuery.data?.find((w) => w.id === activeWorkspaceId);
 
@@ -112,7 +135,7 @@ export default function Chats() {
       )}
 
       <FlatList
-        data={[{ kind: "channels" as const }, { kind: "dms" as const }]}
+        data={[{ kind: "channels" as const }, { kind: "models" as const }, { kind: "dms" as const }]}
         keyExtractor={(item) => item.kind}
         renderItem={({ item }) =>
           item.kind === "channels" ? (
@@ -127,6 +150,44 @@ export default function Chats() {
                 />
               ))}
               {!channelList.length && !channelsQuery.isPending && <Empty text="No channels yet" />}
+            </Section>
+          ) : item.kind === "models" ? (
+            <Section title="AI models">
+              {(llmQuery.data ?? []).map((conn) => (
+                <Pressable
+                  key={conn.id}
+                  disabled={llmOpening === conn.id}
+                  onPress={() => openLlmDm(conn)}
+                  style={({ pressed }) => [styles.row, { opacity: pressed || llmOpening === conn.id ? 0.6 : 1 }]}
+                >
+                  <View style={[rowStyles.hashWrap, { backgroundColor: t.accent100 }]}>
+                    <Text style={{ color: t.accent700, fontWeight: "700", fontSize: 14 }}>✦</Text>
+                  </View>
+                  <Text style={[styles.rowTitle, { color: t.foreground, flex: 1 }]} numberOfLines={1}>
+                    {conn.label}
+                  </Text>
+                  {llmOpening === conn.id ? (
+                    <ActivityIndicator color={t.primary} size="small" />
+                  ) : (
+                    <View
+                      style={[
+                        rowStyles.dot,
+                        {
+                          backgroundColor:
+                            conn.status === "ok" ? t.success : conn.status === "error" ? t.destructive : t.warning,
+                          borderColor: t.background,
+                        },
+                      ]}
+                    />
+                  )}
+                </Pressable>
+              ))}
+              {!llmQuery.isPending && !(llmQuery.data ?? []).length && (
+                <Empty text="No models connected — connect one on web" />
+              )}
+              {!!llmError && (
+                <Text style={{ color: t.destructive, fontSize: 12, paddingHorizontal: 16 }}>{llmError}</Text>
+              )}
             </Section>
           ) : (
             <Section

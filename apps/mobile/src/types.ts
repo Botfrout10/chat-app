@@ -63,6 +63,8 @@ export type Message = {
   attachments: Attachment[];
   reactions: Reaction[];
   mentions?: string[];
+  /** set on LLM replies so clients can clear streaming state */
+  llmConnectionId?: string | null;
 };
 
 export type MessagesPage = {
@@ -105,4 +107,17 @@ export type PresignResponse = {
   mime: string;
   size: number;
   bucket: string;
+};
+
+export type LlmConnection = {
+  id: string;
+  ownerId: string;
+  label: string;
+  mentionName: string;
+  provider: string;
+  baseUrl: string;
+  modelId: string;
+  status: "unverified" | "ok" | "error";
+  lastError: string | null;
+  createdAt: string;
 };

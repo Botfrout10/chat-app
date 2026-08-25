@@ -14,6 +14,7 @@ export function useChatEvents(enabled: boolean) {
   const queryClient = useQueryClient();
   const setTyping = useChatStore((s) => s.setTyping);
   const setPresence = useChatStore((s) => s.setPresence);
+  const setLlmStream = useChatStore((s) => s.setLlmStream);
 
   useEffect(() => {
     if (!enabled) return;
@@ -98,14 +99,41 @@ export function useChatEvents(enabled: boolean) {
       case "notification:new":
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
         break;
+      case "llm:typing": {
+        const evt = payload as { channelId: string; connectionId: string; isTyping: boolean };
+        if (evt.isTyping) setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: "" });
+        else clearLlmStream(evt.channelId, evt.connectionId);
+        break;
+      }
+      case "llm:delta": {
+        const evt = payload as { channelId: string; connectionId: string; delta: string };
+        const cur = useChatStore.getState().llmStreams[evt.channelId];
+        if (cur?.connectionId === evt.connectionId) {
+          setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: cur.text + evt.delta });
+        }
+        break;
+      }
+      case "llm:error": {
+        const evt = payload as { channelId: string; connectionId: string };
+        clearLlmStream(evt.channelId, evt.connectionId);
+        break;
+      }
       default:
         break;
     }
   }
 
+  function clearLlmStream(channelId: string, connectionId?: string) {
+    const cur = useChatStore.getState().llmStreams[channelId];
+    if (!cur || (connectionId && cur.connectionId !== connectionId)) return;
+    setLlmStream(channelId, null);
+  }
+
   /** Insert incoming message into its channel cache in ULID order, deduping by id/nonce. */
   function handleNewMessage(msg: Message) {
     if (!msg?.channelId) return;
+    // final LLM reply landed — drop the streaming indicator
+    if (msg.llmConnectionId) clearLlmStream(msg.channelId, msg.llmConnectionId);
     // live-refresh open threads when a reply lands
     if (msg.parentId) queryClient.invalidateQueries({ queryKey: ["replies", msg.parentId] });
     queryClient.setQueryData<InfiniteData<MessagesPage>>(["messages", msg.channelId], (data) => {
