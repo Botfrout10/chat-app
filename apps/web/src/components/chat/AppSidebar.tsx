@@ -30,6 +30,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Kbd } from "@/components/ui/kbd";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+import { useTheme } from "next-themes";
+import { Moon, Sun } from "lucide-react";
 
 function SectionHeader({ label, onAdd, addTitle }: { label: string; onAdd?: () => void; addTitle?: string }) {
   return (
@@ -82,6 +84,7 @@ export function AppSidebar() {
   const { workspaces, activeWorkspaceId, channels, activeChannelId, setActiveChannel, presence } = useChatStore();
   const openDialog = useUiStore((s) => s.openDialog);
   const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
+  const { resolvedTheme, setTheme } = useTheme();
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: () => api.me().catch(() => null) });
 
@@ -269,6 +272,10 @@ export function AppSidebar() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" side="top" className="w-52">
+            <DropdownMenuItem onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
+              {resolvedTheme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => { window.location.href = "/login?switch=1"; }}>
               <ArrowLeftRight /> Switch account
             </DropdownMenuItem>
