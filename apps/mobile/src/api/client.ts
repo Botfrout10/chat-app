@@ -39,7 +39,17 @@ async function req<T = unknown>(path: string, opts: RequestInit = {}): Promise<T
   if (hasBody && !headers["Content-Type"] && !headers["content-type"]) {
     headers["Content-Type"] = "application/json";
   }
-  const res = await fetch(`${API_URL}${path}`, { ...opts, headers });
+  // RN fetch has no default timeout — abort after 15s so the UI never spins forever
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...opts, headers, signal: controller.signal });
+  } catch (e) {
+    throw new ApiError(0, e instanceof Error && e.name === "AbortError" ? "Request timed out — check that the app points at your computer's IP" : `Network error: cannot reach ${API_URL}`);
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const text = await res.text();
     let msg = text || `Request failed ${res.status}`;
