@@ -6,6 +6,7 @@ This repo is a Turborepo + Bun monorepo. Read before editing.
 
 - **PM:** Bun (`bun install`, `bun run`, `bunx`). Do not use npm/yarn/pnpm.
 - **Web:** `apps/web` — Next.js 15 App Router, Tailwind v4, shadcn-like UI, TanStack Query, Zustand, socket.io-client.
+- **Mobile:** `apps/mobile` — Expo SDK 57 (React Native 0.86), expo-router, TanStack Query, Zustand, socket.io-client, expo-secure-store. Bearer-token auth (`Authorization: Bearer <session token>` + socket `auth:{token}`).
 - **API:** `apps/api` — Fastify 5 on Bun, Better-Auth, Drizzle + postgres-js, ioredis, Socket.IO + Redis Adapter, @aws-sdk/client-s3 (MinIO).
 - **DB:** `packages/db` — Drizzle ORM, `postgres:16-alpine`, `drizzle-kit push`.
 - **Shared:** `packages/shared` — zod schemas, ULID helpers, utils.
@@ -18,11 +19,12 @@ bun install
 bun run dev              # turbo dev (web+api)
 bun run dev:web          # web only :3000
 bun run dev:api          # api only :3001 (needs docker up)
+bun run dev:mobile       # expo dev server (apps/mobile; needs api running)
 docker compose up -d
 bun run db:push --filter=db
 bun run db:seed          # idempotent demo data (alice/bob/carol @pulse.dev, ws 'acme')
 bun run build
-bun run typecheck
+bun run typecheck        # mobile included via its own tsc task
 ```
 
 ## Migrations
@@ -66,6 +68,16 @@ Agents MUST commit regularly — after every completed unit of work. Do not leav
 - Redis adapter needs `maxRetriesPerRequest: null` and `.duplicate()` for sub.
 - UI uses petrol/mint tokens from `globals.css :root` (see DESIGN.md); sidebar `--sidebar`/`--sidebar-muted`; accent scale `--accent-50..700`.
 - Notifications: BullMQ queue `notifications` (`lib/queue.ts`, worker in `workers/notifications.ts`). Enqueue on message create; priority mention > thread > dm > channel; email via Mailpit SMTP :1025. Socket room `user:<id>` gets `notification:new`.
+
+### Mobile gotchas
+
+- Metro needs the monorepo: `apps/mobile/metro.config.js` sets `watchFolders` to repo root + `nodeModulesPaths`; `unstable_enablePackageExports` resolves `@chat/shared/schemas` TS sources. Don't delete it.
+- Bun isolated installs: never import transitive deps (e.g. `@expo/vector-icons`, `ulid`) without adding them to `apps/mobile/package.json`.
+- Auth is bearer-token, no cookies: token from sign-in/up response body → `expo-secure-store` → `Authorization` header + socket `auth:{token}`. After sign-in/out call `resetSocket()` before reconnecting.
+- Env vars must be prefixed `EXPO_PUBLIC_`; Android emulator reaches host as `10.0.2.2`, not `localhost`.
+- Attachments upload raw bytes (blob PUT) — S3 presigned PUT signatures break with FormData multipart.
+- Optimistic sends use temp ids `temp-<ulid>` and a `nonce`; cache upserts dedupe by id OR nonce (socket echo arrives too).
+- Verify mobile changes with `bun run typecheck --filter=mobile` and a bundle smoke test: `bunx expo export --platform web` in `apps/mobile` (run it from that directory).
 
 ## Next work
 

@@ -203,3 +203,21 @@ Change palette: edit 2 blocks in `globals.css:1`. No other file needs edits:
 ```
 
 Tailwind mapping via `@theme inline` auto-propagates to `bg-primary`, `text-foreground`, etc.
+
+## 11. Mobile (`apps/mobile`)
+
+The Expo client reuses the same visual language, ported 1:1 into `src/theme/tokens.ts` (`light`/`dark` palettes + `radius`/`spacing`). Keep web and mobile tokens in sync when tuning.
+
+**UX direction**
+
+- Bottom tabs: Chats · Search · Activity · Settings. Channels/DMs push full-screen (`slide_from_right`).
+- Chat view: inverted list, own messages right-aligned in `--primary` bubbles with `--primary-foreground` text; others left on `--card` with sender name in `--accent-600`. Message grouping collapses consecutive same-sender messages within 5 min.
+- Long-press a message → bottom sheet (custom, cross-platform): quick reactions row (👍 ❤️ 😂 🎉 👀) + thread/reply/edit/delete.
+- Login: dark `--sidebar` hero with wordmark + light card form; matches the landing mood.
+- Presence dots (`--success`/`--border`) on DM avatars; unread badges in `--destructive`.
+
+**Trade-offs**
+
+- Custom message UI over `react-native-gifted-chat`: full token control, lighter bundle.
+- FlashList inverted list over FlatList: long channels stay at 60fps; cursor pages map directly onto the inverted order.
+- Bearer-token auth instead of cookies: RN cookie handling is fragile; API already accepts it.

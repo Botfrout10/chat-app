@@ -38,15 +38,17 @@ Source of truth for where the project stands. Check off completed features, mark
 Full chat parity with web; bearer-token auth; push notifications deferred to phase 2.
 
 - [x] Slice 0 — Expo scaffold: expo-router, monorepo Metro config, petrol/mint theme tokens, turbo wiring
-- [ ] Slice 1 — Auth flow: login/signup, session token in SecureStore, route guard
-- [ ] Slice 2 — API client, typed endpoint helpers, socket singleton (auth via token), zustand store
-- [ ] Slice 3 — Workspace switcher + channel list (presence, unread badges)
-- [ ] Slice 4 — Channel view: FlashList infinite messages, optimistic send, typing, live socket cache updates
-- [ ] Slice 5 — Reactions, edit, delete, thread view
-- [ ] Slice 6 — Attachments: pick → presign → PUT → send; viewer via signed URLs
-- [ ] Slice 7 — Notifications activity tab (live badge)
-- [ ] Slice 8 — Search tab
-- [ ] Slice 9 — Docs: AGENTS.md mobile commands/gotchas, DESIGN.md mobile section
+- [x] Slice 1 — Auth flow: login/signup, session token in SecureStore, route guard
+- [x] Slice 2 — API client, typed endpoint helpers, socket singleton (auth via token), zustand store
+- [x] Slice 3 — Workspace switcher + channel list (presence, unread badges), DM picker via find-or-create
+- [x] Slice 4 — Channel view: inverted message list, optimistic send, typing, live socket cache updates, mark-read
+- [x] Slice 5 — Reactions, edit, delete, thread view
+- [x] Slice 6 — Attachments: pick → presign → PUT → send; viewer via signed URLs
+- [x] Slice 7 — Notifications activity tab (live badge)
+- [x] Slice 8 — Search tab
+- [x] Slice 9 — Docs: AGENTS.md mobile commands/gotchas, DESIGN.md mobile section
+
+**Deferred within mobile:** create-channel / invite UI (API supports it; do next), read-receipt rendering.
 
 ## Remaining / next up
 
