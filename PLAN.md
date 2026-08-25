@@ -76,9 +76,9 @@ Chat with LLMs; delegate real work to external agents. **Connect-only**: the app
 
 - [x] DB: `llm_connection` table — owner user, label, base URL, model id, verified capabilities (tools/vision/context), status
 - [x] API: register/update/delete connection → validate by fetching provider `/v1/models` and matching the model name; store discovered capabilities (`POST /api/llm/connections`, `PATCH`/`DELETE /api/llm/connections/:id`, `POST .../:id/verify`, `GET .../:id/status`; baseUrl normalized to versioned `/v1`, model existence checked with "Available: …" error)
-- [ ] API: completion proxy with **streaming relay** into Socket.IO room `channel:<id>` (timeouts + client-abort handled server-side)
-- [ ] Per-connection DM chat (reuse DM find-or-create; conversation history = normal `message` rows, `senderType: 'llm'`)
-- [ ] Mention-triggered replies in channels/threads: `@model-name …` → completion with channel/thread context window; responses persist as messages so search/notifications work unchanged
+- [x] API: completion proxy with **streaming relay** into Socket.IO room `channel:<id>` (`lib/llm.ts`: SSE parse of OpenAI-compatible `/chat/completions`, 120s timeout, deltas via `llm:delta`/`llm:typing`/`llm:error` events; one generation at a time per connection)
+- [x] Per-connection DM chat (`POST /api/llm/connections/:id/dm` find-or-create; each connection gets a synthetic bot user `llm+<id>@llm.local`, so replies are normal `message` rows with sender joins working)
+- [~] Mention-triggered replies — **core paths live & tested**: DM peer auto-reply + `@mentionName` match against the sender's own connections (hooked into message-send, fire-and-forget). Remaining: notifications worker skip for `llm` senders, abort generation when prompt message is deleted
   - Extend the existing member-mention matching with a second pass over the **sender's own** `llm_connection` rows (name/label/alias) — no pipeline fork; mention rows get a `type: user | llm` discriminator
   - `llm` mentions trigger a streaming completion job instead of a notification; notifications worker skips email for them (decide during build whether an activity/unread signal is still emitted)
   - Edge cases: multiple models mentioned → one reply each, serialized per connection · abort on message delete/edit mid-generation · generation timeout · typing indicator while streaming · per-user completion rate limit
