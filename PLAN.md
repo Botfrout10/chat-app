@@ -55,7 +55,50 @@ Full chat parity with web; bearer-token auth; push notifications deferred to pha
 - [ ] Push notifications (phase 2): device token registry migration, `POST /api/push/register`, expo-server-sdk delivery in notifications worker, deep links
 - [ ] Read-receipt rendering (endpoint + WS event exist, no UI yet)
 - [ ] Invite acceptance screen (`/invite/[token]` missing on web; API exists)
-- [ ] Search v2 (`tsvector` GIN), OpenSearch, `@ai` bot (Ollama RAG)
+- [ ] Search v2 (`tsvector` GIN), OpenSearch
+
+## AI integration (roadmap)
+
+Chat with LLMs; delegate real work to external agents. **Connect-only**: the app never hosts models or agent sandboxes — users bring their own endpoints (localhost or VPS) and we orchestrate.
+
+### Decisions
+
+- LLM access via **OpenAI-compatible API** so one client covers LM Studio, Ollama, vLLM, and most cloud providers; Anthropic gets a thin adapter later.
+- First LLM target: **LM Studio** (its `/v1/models` endpoint gives us existence checks + capability discovery for free).
+- Agents connect over **ACP** (Agent Client Protocol); first agent target: **OpenCode** (beta OK).
+- Connected LLMs are **personal**: visible and mentionable only by the user who connected them (no cost/quota sharing problems).
+- Agent execution happens on the **user's machine/VPS**; the app holds an authenticated control channel (same relay pattern as the LLM proxy, one level up). Hosted sandboxes deliberately out of scope — revisit only if there is demand; schema will keep room for a "hosted provider" type.
+- AI conversations live **inside workspaces**, reusing DM find-or-create.
+- No settings surface yet — each connection gets a simple **status page** (health, models/capabilities, last heartbeat, session state).
+- Voice out of scope. Tools + vision supported at the protocol level where the provider exposes them.
+
+### Phase A — LLMs (chatting)
+
+- [ ] DB: `llm_connection` table — owner user, label, base URL, model id, verified capabilities (tools/vision/context), status
+- [ ] API: register/update/delete connection → validate by fetching provider `/v1/models` and matching the model name; store discovered capabilities
+- [ ] API: completion proxy with **streaming relay** into Socket.IO room `channel:<id>` (timeouts + client-abort handled server-side)
+- [ ] Per-connection DM chat (reuse DM find-or-create; conversation history = normal `message` rows, `senderType: 'llm'`)
+- [ ] Mention-triggered replies in channels/threads: `@model-name …` → completion with channel/thread context window; responses persist as messages so search/notifications work unchanged
+- [ ] Guardrails: per-user rate limits on completions, max context/messages sent upstream, typing indicator during generation
+- [ ] Web: connect-model flow (URL + model name + live validation), model status page, streaming message rendering, tool-call/vision request UI hooks
+- [ ] Mobile: read + send in AI chats (parity slice after web stabilizes)
+
+### Phase B — Agents (real work)
+
+- [ ] DB: `agent_registration` — owner, workspace link, endpoint/host info, auth secret, machine metadata, heartbeat
+- [ ] Local setup path: documented one-command flow (`opencode serve` + paste URL/token); remote VPS same shape
+- [ ] API: ACP client — initialize/session lifecycle, prompt submission, streamed updates (agent messages, tool calls, plans) fanned out to the workspace socket room
+- [ ] Each agent gets its own **workspace** in the app bound to the user-managed machine; task threads map to ACP sessions
+- [ ] Web: rich rendering of ACP events — agent text, tool calls, file diffs, permission/approval prompts surfaced as interactive messages
+- [ ] Status page: connection state, agent name/version, active sessions, last heartbeat
+- [ ] Mobile: minimal — read agent output, approve/deny prompts
+
+### Phase C — Later
+
+- [ ] Cloud providers (OpenAI, Groq, OpenRouter…) + encrypted-at-rest API key storage
+- [ ] Anthropic Messages-API adapter behind the same connection interface
+- [ ] Tool/function-calling round-trips for LLMs (provider-side tools)
+- [ ] Hosted sandbox agent provider (optional, only if demand appears)
 
 ## Notes
 

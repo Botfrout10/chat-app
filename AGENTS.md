@@ -81,4 +81,5 @@ Agents MUST commit regularly — after every completed unit of work. Do not leav
 
 ## Next work
 
-- Search v2 (`tsvector` GIN), OpenSearch, and `@ai` bot (Ollama RAG).
+- AI integration (see PLAN.md): personal LLM connections via OpenAI-compatible API (LM Studio first) + external agents over ACP (OpenCode). Connect-only — no hosted models/sandboxes. Replace the old `@ai bot (Ollama RAG)` idea.
+- Search v2 (`tsvector` GIN), OpenSearch.
