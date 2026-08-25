@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Redirect } from "expo-router";
 
 import { api } from "@/api/client";
 import { useState } from "react";
@@ -24,7 +25,7 @@ const credentialsSchema = z.object({
 
 export default function Login() {
   const t = useTheme();
-  const { signIn } = useSession();
+  const { signIn, token } = useSession();
 
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [name, setName] = useState("");
@@ -32,6 +33,10 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Already signed in — go straight to chats. Kept below all hooks so the
+  // hook order stays stable if the session changes while mounted.
+  if (token) return <Redirect href="/(tabs)/chats" />;
 
   async function submit() {
     setError(null);
@@ -52,7 +57,8 @@ export default function Login() {
           : await api.authSignUp(email.trim(), password, name.trim());
       if (!res?.token) throw new Error("No session token in response");
       await signIn(res.token);
-      // no manual navigation here — the auth gate redirects once /me resolves
+      // signIn sets the token → the redirect at the top of this screen
+      // (or the auth gate) takes over; no manual navigation needed.
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {

@@ -49,6 +49,7 @@ Full chat parity with web; bearer-token auth; push notifications deferred to pha
 - [x] Slice 7 — Notifications activity tab (live badge)
 - [x] Slice 8 — Search tab
 - [x] Slice 9 — Docs: AGENTS.md mobile commands/gotchas, DESIGN.md mobile section
+- [x] Auth hardening: global 401 handler tears down stale sessions → gate redirects to login; session blockers moved below all hooks (Rules of Hooks) in channel/thread views; notification polling gated on token; login redirects signed-in users to chats
 
 **Deferred within mobile:** create-channel / invite UI (API supports it; do next), read-receipt rendering.
 

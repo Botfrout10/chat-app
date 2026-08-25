@@ -353,10 +353,6 @@ export default function ChannelView() {
       />
     </SafeAreaView>
   );
-
-  function sameBucket(a: string, b: string): boolean {
-    return Math.abs(new Date(a).getTime() - new Date(b).getTime()) < 5 * 60 * 1000;
-  }
 }
 
 function flattenPages(data: InfiniteData<MessagesPage>): Message[] {
