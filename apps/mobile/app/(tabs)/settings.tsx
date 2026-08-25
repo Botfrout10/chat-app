@@ -1,15 +1,28 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { api } from "@/api/client";
 import { useMe } from "@/hooks/queries";
 import { useSession } from "@/lib/session";
 import { useTheme } from "@/theme/useTheme";
+import type { LlmConnection } from "@/types";
 
 export default function Settings() {
   const t = useTheme();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { token, signOut } = useSession();
   const meQuery = useMe(!!token);
 
@@ -45,6 +58,8 @@ export default function Settings() {
           )}
         </View>
 
+        {!!token && <LlmManager />}
+
         <Pressable
           accessibilityRole="button"
           onPress={handleSignOut}
@@ -60,6 +75,154 @@ export default function Settings() {
   );
 }
 
+/** Connect / remove personal OpenAI-compatible model endpoints. */
+function LlmManager() {
+  const t = useTheme();
+  const queryClient = useQueryClient();
+  const listQuery = useQuery({ queryKey: ["llm-connections"], queryFn: () => api.llmConnections() });
+  const [showForm, setShowForm] = useState(false);
+  const [label, setLabel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [modelId, setModelId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function invalidate() {
+    queryClient.invalidateQueries({ queryKey: ["llm-connections"] });
+  }
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      api.createLlmConnection({
+        label: label.trim(),
+        baseUrl: baseUrl.trim(),
+        modelId: modelId.trim(),
+      }),
+    onSuccess: () => {
+      setLabel("");
+      setBaseUrl("");
+      setModelId("");
+      setError(null);
+      setShowForm(false);
+      invalidate();
+    },
+    onError: (e) => setError(e instanceof Error ? e.message.slice(0, 200) : "Failed to connect model"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteLlmConnection(id),
+    onSuccess: invalidate,
+    onError: (e) => Alert.alert("Delete failed", e instanceof Error ? e.message : "Unknown error"),
+  });
+
+  function confirmDelete(conn: LlmConnection) {
+    Alert.alert("Remove model", `Disconnect "${conn.label}"?`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: () => deleteMutation.mutate(conn.id) },
+    ]);
+  }
+
+  function submit() {
+    setError(null);
+    if (!label.trim() || !baseUrl.trim() || !modelId.trim()) {
+      setError("All fields are required");
+      return;
+    }
+    createMutation.mutate();
+  }
+
+  const conns = listQuery.data ?? [];
+
+  return (
+    <View style={[styles.cardCol, { backgroundColor: t.card, borderColor: t.border }]}>
+      <View style={styles.sectionHeader}>
+        <Text style={[styles.sectionTitle, { color: t.mutedForeground }]}>AI MODELS</Text>
+        <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setShowForm((v) => !v)}>
+          <Ionicons name={showForm ? "close" : "add-circle-outline"} size={22} color={t.primary} />
+        </Pressable>
+      </View>
+
+      {showForm && (
+        <View style={{ gap: 8 }}>
+          <TextInput
+            style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground }]}
+            placeholder="Label (e.g. My LM Studio)"
+            placeholderTextColor={t.mutedForeground}
+            value={label}
+            onChangeText={setLabel}
+          />
+          <TextInput
+            style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground }]}
+            placeholder="Base URL (e.g. http://192.168.1.93:1234)"
+            placeholderTextColor={t.mutedForeground}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            value={baseUrl}
+            onChangeText={setBaseUrl}
+          />
+          <TextInput
+            style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground }]}
+            placeholder="Model ID (as reported by the provider)"
+            placeholderTextColor={t.mutedForeground}
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={modelId}
+            onChangeText={setModelId}
+          />
+          {!!error && <Text style={{ color: t.destructive, fontSize: 12 }}>{error}</Text>}
+          <Pressable
+            accessibilityRole="button"
+            disabled={createMutation.isPending}
+            onPress={submit}
+            style={({ pressed }) => [
+              styles.connectBtn,
+              { backgroundColor: t.primary, opacity: pressed || createMutation.isPending ? 0.8 : 1 },
+            ]}
+          >
+            {createMutation.isPending ? (
+              <ActivityIndicator color={t.primaryForeground} size="small" />
+            ) : (
+              <Text style={[styles.connectBtnText, { color: t.primaryForeground }]}>Connect & verify</Text>
+            )}
+          </Pressable>
+        </View>
+      )}
+
+      {listQuery.isPending && <ActivityIndicator color={t.primary} />}
+      {!listQuery.isPending && !conns.length && !showForm && (
+        <Text style={{ color: t.mutedForeground, fontSize: 13 }}>
+          No models connected — tap + to add an OpenAI-compatible endpoint.
+        </Text>
+      )}
+      {conns.map((conn) => (
+        <View key={conn.id} style={styles.connRow}>
+          <View
+            style={[
+              styles.statusDot,
+              {
+                backgroundColor:
+                  conn.status === "ok" ? t.success : conn.status === "error" ? t.destructive : t.warning,
+              },
+            ]}
+          />
+          <View style={styles.flex}>
+            <Text style={[styles.rowTitle2, { color: t.foreground }]} numberOfLines={1}>
+              {conn.label}
+            </Text>
+            <Text style={{ color: t.mutedForeground, fontSize: 12 }} numberOfLines={1}>
+              {conn.modelId}
+              {conn.status === "error" && !!conn.lastError ? ` — ${conn.lastError}` : ""}
+            </Text>
+          </View>
+          <Pressable accessibilityRole="button" hitSlop={8} onPress={() => confirmDelete(conn)}>
+            <Ionicons name="trash-outline" size={18} color={t.destructive} />
+          </Pressable>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { padding: 16, gap: 16 },
@@ -72,6 +235,18 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
   },
+  cardCol: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 10,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  sectionTitle: { fontSize: 12, fontWeight: "700", letterSpacing: 0.6 },
   avatar: {
     width: 44,
     height: 44,
@@ -79,10 +254,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { fontSize: 18, fontWeight: "700" },
+  avatarText: { fontSize: 18, fontWeight: "800" },
   flex: { flex: 1 },
   name: { fontSize: 16, fontWeight: "600" },
-  email: { fontSize: 13, marginTop: 2 },
+  email: { fontSize: 13 },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  connectBtn: {
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  connectBtnText: { fontSize: 14, fontWeight: "700" },
+  connRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  rowTitle2: { fontSize: 14, fontWeight: "600" },
   signOut: {
     borderRadius: 14,
     paddingVertical: 14,

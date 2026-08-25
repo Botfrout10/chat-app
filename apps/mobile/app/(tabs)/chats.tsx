@@ -9,6 +9,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -25,7 +26,20 @@ export default function Chats() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const [modal, setModal] = useState<"workspace" | "dm" | null>(null);
+  const [modal, setModal] = useState<"workspace" | "dm" | "channel" | null>(null);
+  const [newWsName, setNewWsName] = useState("");
+  const [wsError, setWsError] = useState<string | null>(null);
+
+  const createWsMutation = useMutation({
+    mutationFn: () => api.createWorkspace(newWsName.trim()),
+    onSuccess: (ws) => {
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      setActiveWorkspace(ws.id);
+      setNewWsName("");
+      setModal(null);
+    },
+    onError: (e) => setWsError(e instanceof Error ? e.message : "Failed to create workspace"),
+  });
 
   const workspacesQuery = useWorkspaces();
   const activeWorkspaceId = useChatStore((s) => s.activeWorkspaceId);
@@ -139,7 +153,11 @@ export default function Chats() {
         keyExtractor={(item) => item.kind}
         renderItem={({ item }) =>
           item.kind === "channels" ? (
-            <Section title={`Channels${channelList.length ? ` — ${channelList.length}` : ""}`}>
+            <Section
+              title={`Channels${channelList.length ? ` — ${channelList.length}` : ""}`}
+              actionLabel="New"
+              onAction={() => setModal("channel")}
+            >
               {channelList.map((c) => (
                 <Row
                   key={c.id}
@@ -247,6 +265,36 @@ export default function Chats() {
                 {w.id === activeWorkspaceId && <Ionicons name="checkmark" size={18} color={t.primary} />}
               </Pressable>
             ))}
+
+            <View style={{ borderTopWidth: 1, borderTopColor: t.border, paddingTop: 10, marginTop: 4, gap: 8 }}>
+              <Text style={{ color: t.mutedForeground, fontSize: 12, fontWeight: "600" }}>CREATE NEW</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <TextInput
+                  style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground, flex: 1 }]}
+                  placeholder="Workspace name"
+                  placeholderTextColor={t.mutedForeground}
+                  value={newWsName}
+                  onChangeText={setNewWsName}
+                  onSubmitEditing={() => newWsName.trim().length >= 2 && createWsMutation.mutate()}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={createWsMutation.isPending || newWsName.trim().length < 2}
+                  onPress={() => createWsMutation.mutate()}
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    { backgroundColor: t.primary, paddingHorizontal: 16, paddingVertical: 0, opacity: pressed ? 0.8 : 1 },
+                  ]}
+                >
+                  {createWsMutation.isPending ? (
+                    <ActivityIndicator color={t.primaryForeground} size="small" />
+                  ) : (
+                    <Ionicons name="add" size={20} color={t.primaryForeground} />
+                  )}
+                </Pressable>
+              </View>
+              {!!wsError && <Text style={{ color: t.destructive, fontSize: 12 }}>{wsError}</Text>}
+            </View>
           </View>
         </Pressable>
       </Modal>
@@ -254,6 +302,14 @@ export default function Chats() {
       {/* new-DM member picker */}
       <DmPickerModal
         visible={modal === "dm"}
+        workspaceId={activeWorkspaceId}
+        onClose={() => setModal(null)}
+        onCreated={handleDmCreated}
+      />
+
+      {/* new channel */}
+      <CreateChannelModal
+        visible={modal === "channel"}
         workspaceId={activeWorkspaceId}
         onClose={() => setModal(null)}
         onCreated={handleDmCreated}
@@ -274,8 +330,36 @@ function DmPickerModal({
   onCreated: (channelId: string, name: string) => void | Promise<void>;
 }) {
   const t = useTheme();
+  const queryClient = useQueryClient();
   const membersQuery = useMembers(visible ? workspaceId : null);
   const [error, setError] = useState<string | null>(null);
+  const [invite, setInvite] = useState("");
+
+  const inviteMutation = useMutation({
+    mutationFn: () => api.addMember(workspaceId!, invite.trim()),
+    onSuccess: (added) => {
+      setInvite("");
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ["members", workspaceId] });
+      void added;
+    },
+    onError: (e) => {
+      const raw = e instanceof Error ? e.message : "Failed to add member";
+      // not a registered user — fall back to email invite
+      if (/USER_NOT_FOUND|No registered user/i.test(raw)) {
+        inviteMutation.reset();
+        api.invite(workspaceId!, invite.trim(), "member")
+          .then(() => {
+            setInvite("");
+            setError(null);
+            queryClient.invalidateQueries({ queryKey: ["members", workspaceId] });
+          })
+          .catch((e2) => setError(e2 instanceof Error ? e2.message.slice(0, 160) : "Failed to send invite"));
+        return;
+      }
+      setError(raw.slice(0, 160));
+    },
+  });
 
   const dmMutation = useMutation({
     mutationFn: (userId: string) => api.findOrCreateDm(workspaceId!, userId),
@@ -288,7 +372,34 @@ function DmPickerModal({
       <Pressable style={styles.modalBackdrop} onPress={onClose}>
         <Pressable style={[styles.modalCard, { backgroundColor: t.card }]}>
           <Text style={[styles.modalTitle, { color: t.foreground }]}>Start a conversation</Text>
-          {!!error && <Text style={{ color: t.destructive, fontSize: 13 }}>{error}</Text>}
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <TextInput
+              style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground, flex: 1 }]}
+              placeholder="Add by name or email…"
+              placeholderTextColor={t.mutedForeground}
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={invite}
+              onChangeText={setInvite}
+              onSubmitEditing={() => invite.trim() && inviteMutation.mutate()}
+            />
+            <Pressable
+              accessibilityRole="button"
+              disabled={inviteMutation.isPending || !invite.trim()}
+              onPress={() => inviteMutation.mutate()}
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                { backgroundColor: t.primary, paddingHorizontal: 14, paddingVertical: 0, opacity: pressed ? 0.8 : 1 },
+              ]}
+            >
+              {inviteMutation.isPending ? (
+                <ActivityIndicator color={t.primaryForeground} size="small" />
+              ) : (
+                <Ionicons name="person-add-outline" size={18} color={t.primaryForeground} />
+              )}
+            </Pressable>
+          </View>
+          {!!error && <Text style={{ color: t.destructive, fontSize: 12 }}>{error}</Text>}
           {membersQuery.isPending && <ActivityIndicator color={t.primary} />}
           {(membersQuery.data ?? []).map((m) => (
             <Pressable
@@ -315,6 +426,103 @@ function DmPickerModal({
           {!membersQuery.isPending && !(membersQuery.data ?? []).length && (
             <Text style={{ color: t.mutedForeground, fontSize: 13 }}>No other members yet</Text>
           )}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function CreateChannelModal({
+  visible,
+  workspaceId,
+  onClose,
+  onCreated,
+}: {
+  visible: boolean;
+  workspaceId: string | null | undefined;
+  onClose: () => void;
+  onCreated: (channelId: string, name: string) => void | Promise<void>;
+}) {
+  const t = useTheme();
+  const [name, setName] = useState("");
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      api.createChannel(workspaceId!, {
+        name: name.trim().toLowerCase().replace(/\s+/g, "-"),
+        type: isPrivate ? "private" : "public",
+      }),
+    onSuccess: (channel) => {
+      setName("");
+      setIsPrivate(false);
+      void onCreated(channel.id, channelTitle(channel));
+    },
+    onError: (e) => {
+      const raw = e instanceof Error ? e.message : "Failed to create channel";
+      setError(/unique|duplicate/i.test(raw) ? "A channel with this name already exists" : raw);
+    },
+  });
+
+  function submit() {
+    setError(null);
+    if (!workspaceId) { setError("Select a workspace first"); return; }
+    createMutation.mutate();
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Pressable style={[styles.modalCard, { backgroundColor: t.card }]}>
+          <Text style={[styles.modalTitle, { color: t.foreground }]}>New channel</Text>
+          <TextInput
+            style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground }]}
+            placeholder="e.g. design-crit (a-z, 0-9, -)"
+            placeholderTextColor={t.mutedForeground}
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={name}
+            onChangeText={setName}
+            onSubmitEditing={submit}
+          />
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setIsPrivate((v) => !v)}
+            style={({ pressed }) => [
+              styles.wsRow,
+              { borderWidth: 1, borderColor: t.border, opacity: pressed ? 0.6 : 1 },
+            ]}
+          >
+            <Ionicons name={isPrivate ? "lock-closed" : "globe-outline"} size={18} color={t.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowTitle, { color: t.foreground }]}>{isPrivate ? "🔒 Private" : "🌐 Public"}</Text>
+              <Text style={{ color: t.mutedForeground, fontSize: 12 }}>
+                {isPrivate ? "Invite only — hidden from non-members" : "Everyone in the workspace can join"}
+              </Text>
+            </View>
+            <Ionicons
+              name={isPrivate ? "checkbox" : "square-outline"}
+              size={20}
+              color={isPrivate ? t.primary : t.mutedForeground}
+            />
+          </Pressable>
+          {!!error && <Text style={{ color: t.destructive, fontSize: 13 }}>{error}</Text>}
+          <Pressable
+            accessibilityRole="button"
+            disabled={createMutation.isPending || name.trim().length < 2}
+            onPress={submit}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              { backgroundColor: t.primary, opacity: pressed || createMutation.isPending ? 0.8 : 1 },
+            ]}
+          >
+            {createMutation.isPending ? (
+              <ActivityIndicator color={t.primaryForeground} size="small" />
+            ) : (
+              <Text style={[styles.primaryBtnText, { color: t.primaryForeground }]}>Create channel</Text>
+            )}
+          </Pressable>
         </Pressable>
       </Pressable>
     </Modal>
@@ -425,6 +633,21 @@ function Empty({ text }: { text: string }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  primaryBtn: {
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 42,
+    minWidth: 42,
+  },
+  primaryBtnText: { fontSize: 15, fontWeight: "700" },
   header: {
     flexDirection: "row",
     alignItems: "center",
