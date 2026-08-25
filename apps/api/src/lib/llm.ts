@@ -48,11 +48,13 @@ export async function ensureBotUser(app: FastifyInstance, conn: LlmConnectionRow
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
+type StreamDelta = { kind: "content" | "reasoning"; text: string };
+
 async function* streamChatCompletion(
   conn: LlmConnectionRow,
   messages: ChatMessage[],
   signal: AbortSignal,
-): AsyncGenerator<string> {
+): AsyncGenerator<StreamDelta> {
   const res = await fetch(`${conn.baseUrl}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "text/event-stream" },
@@ -80,8 +82,12 @@ async function* streamChatCompletion(
       if (payload === "[DONE]") return;
       try {
         const chunk = JSON.parse(payload);
-        const delta = chunk?.choices?.[0]?.delta?.content;
-        if (typeof delta === "string" && delta) yield delta;
+        const delta = chunk?.choices?.[0]?.delta ?? {};
+        // OpenAI-compatible reasoning models expose chain-of-thought as
+        // `reasoning_content` (DeepSeek/LM Studio) or `reasoning` (others)
+        const thinking = delta.reasoning_content ?? delta.reasoning;
+        if (typeof thinking === "string" && thinking) yield { kind: "reasoning", text: thinking };
+        if (typeof delta.content === "string" && delta.content) yield { kind: "content", text: delta.content };
       } catch {
         // partial/keepalive line — ignore
       }
@@ -158,18 +164,32 @@ export async function triggerLlmReply(
   try {
     const messages = await assembleContext(db, args.conn, args.channelId);
     let full = "";
+    let reasoning = "";
     for await (const delta of streamChatCompletion(args.conn, messages, signal)) {
-      full += delta;
-      await redis.publish("chat:events", JSON.stringify({
-        type: "llm:delta", channelId: args.channelId, connectionId: args.conn.id, delta,
-      }));
+      if (delta.kind === "reasoning") {
+        reasoning += delta.text;
+        await redis.publish("chat:events", JSON.stringify({
+          type: "llm:thinking", channelId: args.channelId, connectionId: args.conn.id, delta: delta.text,
+        }));
+      } else {
+        full += delta.text;
+        await redis.publish("chat:events", JSON.stringify({
+          type: "llm:delta", channelId: args.channelId, connectionId: args.conn.id, delta: delta.text,
+        }));
+      }
     }
     if (!full.trim()) throw new Error("Provider returned an empty completion");
 
     const id = ulid();
     const [msg] = await db
       .insert(message)
-      .values({ id, channelId: args.channelId, senderId: args.conn.botUserId!, content: full.trim() })
+      .values({
+        id,
+        channelId: args.channelId,
+        senderId: args.conn.botUserId!,
+        content: full.trim(),
+        reasoning: reasoning.trim() || null,
+      })
       .returning();
     const [bot] = await db.select().from(userTable).where(eq(userTable.id, args.conn.botUserId!));
     const withSender = { ...msg, sender: bot, attachments: [], reactions: [], llmConnectionId: args.conn.id };
