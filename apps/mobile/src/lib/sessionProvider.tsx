@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { api } from "@/api/client";
+import { api, setUnauthorizedHandler } from "@/api/client";
 import {
   SessionContext,
   deleteToken,
@@ -29,6 +29,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  // 401 from any authenticated endpoint → drop the local session so the
+  // auth gate redirects to login. Mirrors signOut() minus the server call.
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      if (!tokenRef.current) return; // already signed out — don't loop
+      void (async () => {
+        await deleteToken();
+        resetSocket();
+        useChatStore.getState().reset();
+        queryClient.clear();
+        setToken(null);
+      })();
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [queryClient]);
 
   const session = useMemo<Session>(
     () => ({

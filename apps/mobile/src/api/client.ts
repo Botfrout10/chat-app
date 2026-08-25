@@ -32,6 +32,20 @@ class ApiError extends Error {
   }
 }
 
+/**
+ * Invoked once per request when the API answers 401 (excluding sign-in/up).
+ * SessionProvider registers a teardown that clears the stored token so the
+ * auth gate redirects to login instead of leaving the user "in" the app.
+ */
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  onUnauthorized = fn;
+}
+
+function isAuthPath(path: string): boolean {
+  return path.startsWith("/api/auth/sign-in") || path.startsWith("/api/auth/sign-up");
+}
+
 async function req<T = unknown>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { ...(opts.headers as Record<string, string>) };
   const token = await loadToken();
@@ -60,7 +74,7 @@ async function req<T = unknown>(path: string, opts: RequestInit = {}): Promise<T
       const raw = parsed?.error ?? parsed?.message;
       if (typeof raw === "string") msg = raw;
       else if (raw) msg = JSON.stringify(raw);
-      if (parsed?.code === "INVALID_EMAIL_OR_PASSWORD" || res.status === 401) {
+      if (parsed?.code === "INVALID_EMAIL_OR_PASSWORD") {
         msg = "Invalid email or password";
       }
       if (Array.isArray(parsed?.fieldErrors)) {
@@ -68,6 +82,12 @@ async function req<T = unknown>(path: string, opts: RequestInit = {}): Promise<T
       }
     } catch {
       // plain text body
+    }
+    if (res.status === 401) {
+      // Stale/expired token on an authenticated endpoint — tear down the
+      // session so the gate sends the user to login (never on sign-in/up).
+      if (!isAuthPath(path)) onUnauthorized?.();
+      else if (!msg) msg = "Invalid email or password";
     }
     throw new ApiError(res.status, msg);
   }
