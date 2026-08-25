@@ -44,6 +44,9 @@ export default function Activity() {
 
   function open(n: AppNotification) {
     if (!n.read) markOne.mutate(n.id);
+    // some notification rows may lack channelId — don't navigate into a
+    // broken /channel/undefined route
+    if (!n.channelId) return;
     router.push({ pathname: "/channel/[id]", params: { id: n.channelId } });
   }
 

@@ -208,6 +208,27 @@ export default function ChannelView() {
   // whether or not the blocker short-circuits the render.
   if (blocker) return blocker;
 
+  // Route arrived without an id (bad deep link / notification) — never render
+  // a live composer that would POST to /api/channels/undefined/messages.
+  if (!channelId) {
+    return (
+      <SafeAreaView style={[styles.safe, { backgroundColor: t.background }]}>
+        <View style={styles.missingWrap}>
+          <Ionicons name="chatbubble-outline" size={36} color={t.border} />
+          <Text style={{ color: t.mutedForeground, marginTop: 8 }}>Conversation not found</Text>
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)/chats"))}
+            style={({ pressed }) => [styles.missingBtn, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Text style={{ color: t.primary, fontWeight: "600" }}>Go back</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const typingLabel =
     typingUsers.length === 0
       ? ""
@@ -401,6 +422,8 @@ function replaceById(
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   flex: { flex: 1 },
+  missingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4 },
+  missingBtn: { marginTop: 12, paddingVertical: 10, paddingHorizontal: 20 },
   header: {
     flexDirection: "row",
     alignItems: "center",

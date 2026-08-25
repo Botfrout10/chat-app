@@ -26,12 +26,13 @@ export function useMembers(workspaceId: string | null | undefined) {
   });
 }
 
-export function useMessages(channelId: string) {
+export function useMessages(channelId: string | null | undefined) {
   return useInfiniteQuery({
     queryKey: ["messages", channelId],
-    queryFn: ({ pageParam }) => api.messages(channelId, pageParam ? { before: pageParam } : undefined),
+    queryFn: ({ pageParam }) => api.messages(channelId!, pageParam ? { before: pageParam } : undefined),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    enabled: !!channelId,
   });
 }
 
