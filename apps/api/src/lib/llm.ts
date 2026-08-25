@@ -51,12 +51,13 @@ type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 async function* streamChatCompletion(
   conn: LlmConnectionRow,
   messages: ChatMessage[],
+  signal: AbortSignal,
 ): AsyncGenerator<string> {
   const res = await fetch(`${conn.baseUrl}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "text/event-stream" },
     body: JSON.stringify({ model: conn.modelId, messages, stream: true }),
-    signal: AbortSignal.timeout(GENERATION_TIMEOUT_MS),
+    signal,
   });
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => "");
@@ -93,6 +94,15 @@ async function* streamChatCompletion(
 // ---------------------------------------------------------------------------
 
 const generating = new Set<string>(); // connection ids currently mid-generation
+// prompt message id -> active generation, so deleting the prompt cancels it
+const activeByPrompt = new Map<string, { connId: string; controller: AbortController }>();
+
+export function abortLlmGenerationForMessage(promptMessageId: string): boolean {
+  const active = activeByPrompt.get(promptMessageId);
+  if (!active) return false;
+  active.controller.abort();
+  return true;
+}
 
 async function assembleContext(db: any, conn: LlmConnectionRow, channelId: string): Promise<ChatMessage[]> {
   const rows = await db
@@ -125,7 +135,7 @@ async function assembleContext(db: any, conn: LlmConnectionRow, channelId: strin
 
 export async function triggerLlmReply(
   app: FastifyInstance,
-  args: { conn: LlmConnectionRow; channelId: string },
+  args: { conn: LlmConnectionRow; channelId: string; promptMessageId?: string },
 ): Promise<boolean> {
   const db = (app as any).db;
   const redis = (app as any).redis;
@@ -133,6 +143,12 @@ export async function triggerLlmReply(
   if (!args.conn.botUserId) await ensureBotUser(app, args.conn);
   if (generating.has(args.conn.id)) return false; // one generation at a time per connection
   generating.add(args.conn.id);
+
+  const controller = new AbortController();
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(GENERATION_TIMEOUT_MS)]);
+  if (args.promptMessageId) {
+    activeByPrompt.set(args.promptMessageId, { connId: args.conn.id, controller });
+  }
 
   // typing indicator for the duration of generation
   await redis.publish("chat:events", JSON.stringify({
@@ -142,7 +158,7 @@ export async function triggerLlmReply(
   try {
     const messages = await assembleContext(db, args.conn, args.channelId);
     let full = "";
-    for await (const delta of streamChatCompletion(args.conn, messages)) {
+    for await (const delta of streamChatCompletion(args.conn, messages, signal)) {
       full += delta;
       await redis.publish("chat:events", JSON.stringify({
         type: "llm:delta", channelId: args.channelId, connectionId: args.conn.id, delta,
@@ -162,13 +178,19 @@ export async function triggerLlmReply(
     }));
     return true;
   } catch (e) {
-    app.log.error(`llm generation failed (${args.conn.label}): ${(e as Error).message}`);
-    await redis.publish("chat:events", JSON.stringify({
-      type: "llm:error", channelId: args.channelId, connectionId: args.conn.id, error: (e as Error).message,
-    }));
+    const cancelled = controller.signal.aborted;
+    app.log.error(`llm generation ${cancelled ? "cancelled" : "failed"} (${args.conn.label}): ${(e as Error).message}`);
+    if (!cancelled) {
+      await redis.publish("chat:events", JSON.stringify({
+        type: "llm:error", channelId: args.channelId, connectionId: args.conn.id, error: (e as Error).message,
+      }));
+    }
     return false;
   } finally {
     generating.delete(args.conn.id);
+    if (args.promptMessageId && activeByPrompt.get(args.promptMessageId)?.controller === controller) {
+      activeByPrompt.delete(args.promptMessageId);
+    }
     await redis.publish("chat:events", JSON.stringify({
       type: "llm:typing", channelId: args.channelId, connectionId: args.conn.id, isTyping: false,
     }));
@@ -180,7 +202,7 @@ export async function triggerLlmReply(
 // - @mentionName tokens matching connections owned by the sender → reply once each
 export async function maybeTriggerLlm(
   app: FastifyInstance,
-  args: { channel: typeof channel.$inferSelect; senderId: string; content: string },
+  args: { channel: typeof channel.$inferSelect; senderId: string; content: string; messageId: string },
 ) {
   try {
     const db = (app as any).db;
@@ -200,7 +222,7 @@ export async function maybeTriggerLlm(
         .where(eq(channelMember.channelId, args.channel.id));
       const peer = members.find((m: any) => m.userId !== args.senderId);
       if (peer && byBot.has(peer.userId)) {
-        void triggerLlmReply(app, { conn: byBot.get(peer.userId)!, channelId: args.channel.id });
+        void triggerLlmReply(app, { conn: byBot.get(peer.userId)!, channelId: args.channel.id, promptMessageId: args.messageId });
         return;
       }
     }
@@ -210,7 +232,7 @@ export async function maybeTriggerLlm(
     if (!tokens.size) return;
     for (const conn of conns) {
       if (tokens.has(conn.mentionName.toLowerCase())) {
-        void triggerLlmReply(app, { conn, channelId: args.channel.id });
+        void triggerLlmReply(app, { conn, channelId: args.channel.id, promptMessageId: args.messageId });
       }
     }
   } catch (e) {

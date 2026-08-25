@@ -4,7 +4,7 @@ import { and, eq, lt, gt, desc, asc, sql } from "drizzle-orm";
 import { message, channelMember, channel, reaction, attachment, workspaceMember, mention } from "@chat/db/schema";
 import { sendMessageSchema, editMessageSchema, reactionSchema } from "@chat/shared/schemas";
 import { enforceRate } from "../lib/rateLimit.js";
-import { maybeTriggerLlm } from "../lib/llm.js";
+import { maybeTriggerLlm, abortLlmGenerationForMessage } from "../lib/llm.js";
 
 export async function registerMessageRoutes(app: FastifyInstance) {
   // list messages with cursor pagination: ?before=<ulid>&after=<ulid>&limit=50
@@ -183,7 +183,7 @@ export async function registerMessageRoutes(app: FastifyInstance) {
     }
 
     // wake connected LLMs (DM peer or personal @mention) — fire-and-forget
-    void maybeTriggerLlm(app, { channel: ch, senderId: user.id, content: parsed.data.content });
+    void maybeTriggerLlm(app, { channel: ch, senderId: user.id, content: parsed.data.content, messageId: id });
 
     return withSender;
   });
@@ -201,6 +201,8 @@ export async function registerMessageRoutes(app: FastifyInstance) {
     if (msg.senderId !== user.id) return reply.code(403).send({ error: "Only author can edit" });
     if (msg.deletedAt) return reply.code(400).send({ error: "Message deleted" });
     const [updated] = await db.update(message).set({ content: parsed.data.content, editedAt: new Date() }).where(eq(message.id, id)).returning();
+    // edited prompt = new intent; cancel any generation started from the old text
+    abortLlmGenerationForMessage(id);
     const redis = (app as any).redis;
     await redis.publish("chat:events", JSON.stringify({ type: "message:updated", channelId: msg.channelId, message: updated }));
     return updated;
@@ -216,6 +218,8 @@ export async function registerMessageRoutes(app: FastifyInstance) {
     if (msg.senderId !== user.id) return reply.code(403).send({ error: "Only author can delete" });
     if (msg.deletedAt) return reply.code(400).send({ error: "Already deleted" });
     const [deleted] = await db.update(message).set({ deletedAt: new Date(), content: "[deleted]" }).where(eq(message.id, id)).returning();
+    // if this message had an LLM generation in flight, cancel it
+    abortLlmGenerationForMessage(id);
     const redis = (app as any).redis;
     await redis.publish("chat:events", JSON.stringify({ type: "message:deleted", channelId: msg.channelId, messageId: id }));
     return deleted;

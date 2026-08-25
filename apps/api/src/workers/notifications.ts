@@ -1,7 +1,7 @@
 import { Worker, Job } from "bullmq";
 import IORedis from "ioredis";
 import { ulid } from "ulid";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@chat/db";
 import { channel, channelMember, user, message as messageTable, notification } from "@chat/db/schema";
 import { env } from "../lib/env.js";
@@ -47,11 +47,28 @@ async function processNotification(job: Job<NotifyJobData>, connection: IORedis)
   const [ch] = await db.select().from(channel).where(eq(channel.id, msg.channelId));
   if (!ch) return;
 
+  const { llmConnection } = await import("@chat/db/schema");
+
+  // AI replies never notify: the requester is watching the stream live
+  const [botConn] = await db
+    .select({ id: llmConnection.id })
+    .from(llmConnection)
+    .where(eq(llmConnection.botUserId, msg.senderId));
+  if (botConn) return;
+
   const rows = await db
     .select({ u: user, cm: channelMember })
     .from(channelMember)
     .innerJoin(user, eq(channelMember.userId, user.id))
     .where(eq(channelMember.channelId, ch.id));
+
+  // never target bot users either (e.g. human prompt inside an LLM dm)
+  const memberIds = rows.map((r) => r.u.id);
+  const botIds = new Set(
+    memberIds.length
+      ? (await db.select({ id: llmConnection.botUserId }).from(llmConnection).where(inArray(llmConnection.botUserId, memberIds))).map((r) => r.id)
+      : []
+  );
 
   // DB-recorded mentions are authoritative; regex tokens as fallback for robustness
   let dbMentionIds = new Set<string>();
@@ -68,6 +85,7 @@ async function processNotification(job: Job<NotifyJobData>, connection: IORedis)
 
   for (const { u, cm } of rows) {
     if (u.id === msg.senderId) continue;
+    if (botIds.has(u.id)) continue;
     if (cm.notificationPref === "nothing") continue;
     const uname = (u.name ?? "").toLowerCase();
     const ulocal = (u.email ?? "").split("@")[0]?.toLowerCase() ?? "";
@@ -80,7 +98,7 @@ async function processNotification(job: Job<NotifyJobData>, connection: IORedis)
 
   if (msg.parentId) {
     const [parent] = await db.select().from(messageTable).where(eq(messageTable.id, msg.parentId));
-    if (parent && parent.senderId !== msg.senderId) {
+    if (parent && parent.senderId !== msg.senderId && !botIds.has(parent.senderId)) {
       const entry = rows.find((r) => r.u.id === parent.senderId);
       if (entry && entry.cm.notificationPref !== "nothing") {
         const existing = targets.get(parent.senderId);
