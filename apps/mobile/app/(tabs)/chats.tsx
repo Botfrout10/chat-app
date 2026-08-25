@@ -64,7 +64,12 @@ export default function Chats() {
   function openChannel(c: Channel) {
     router.push({
       pathname: "/channel/[id]",
-      params: { id: c.id, name: channelTitle(c), type: c.type },
+      params: {
+        id: c.id,
+        name: channelTitle(c),
+        type: c.type,
+        peer: !Array.isArray(c.dmPeer) && c.dmPeer ? c.dmPeer.id : "",
+      },
     });
   }
 

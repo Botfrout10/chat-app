@@ -7,21 +7,22 @@ import type { MessagesPage, Message } from "@/types";
 
 /**
  * Wires the socket singleton to the TanStack Query cache + zustand UI state.
- * Mount once inside the authenticated tree. Channel rooms are joined by
+ * Mount once at the root (inside SessionProvider). Channel rooms are joined by
  * <ChannelView> via joinChannelRoom/leaveChannelRoom.
  */
-export function useChatEvents() {
+export function useChatEvents(enabled: boolean) {
   const queryClient = useQueryClient();
   const setTyping = useChatStore((s) => s.setTyping);
   const setPresence = useChatStore((s) => s.setPresence);
 
   useEffect(() => {
+    if (!enabled) return;
     const socket = connectAndListen();
     return () => {
       socket.offAny(onEvent);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryClient]);
+  }, [queryClient, enabled]);
 
   function connectAndListen() {
     const socket = getSocket();
@@ -105,6 +106,8 @@ export function useChatEvents() {
   /** Insert incoming message into its channel cache in ULID order, deduping by id/nonce. */
   function handleNewMessage(msg: Message) {
     if (!msg?.channelId) return;
+    // live-refresh open threads when a reply lands
+    if (msg.parentId) queryClient.invalidateQueries({ queryKey: ["replies", msg.parentId] });
     queryClient.setQueryData<InfiniteData<MessagesPage>>(["messages", msg.channelId], (data) => {
       if (!data) return data; // channel not loaded — will be fetched on open
       const pages = data.pages.map((p, i) =>
