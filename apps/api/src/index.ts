@@ -56,6 +56,12 @@ app.all("/api/auth/*", async (req, reply) => {
   const bodyText = body ? JSON.stringify(body) : undefined;
   if (bodyText) headers.set("content-type", "application/json");
 
+  // React Native fetch sends no Origin header; better-auth's CSRF check then
+  // rejects the request with 403 "Missing or null origin". Native clients
+  // authenticate via bearer tokens (no cookies), so CSRF doesn't apply to
+  // them — supply a trusted origin so the check passes.
+  if (!headers.has("origin")) headers.set("origin", env.API_URL);
+
   const request = new Request(url.toString(), {
     method: req.method,
     headers,

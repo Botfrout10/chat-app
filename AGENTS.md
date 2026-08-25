@@ -64,6 +64,7 @@ Agents MUST commit regularly — after every completed unit of work. Do not leav
 - AI dev testing: LM Studio via `lms server start` (:1234, OpenAI-compatible `/v1`). Seed users alice/bob/carol @pulse.dev / password123. Empty-body POST/DELETE need `{}` body (Fastify `FST_ERR_CTP_EMPTY_JSON_BODY`) — same as sign-out fix.
 
 - Better-Auth drizzle schema requires `account.issuer` (nullable text). Added.
+- React Native fetch sends no `Origin` header → better-auth 403 "Missing or null origin" on sign-in/up. Fixed by defaulting `origin` to `env.API_URL` (already trusted) in the `/api/auth/*` proxy (`apps/api/src/index.ts`) when absent. Web/browser requests are unaffected.
 - Next.js `useSearchParams` must be in `Suspense` (login page).
 - `apps/web/.git` must not exist (embedded repo breaks turbo root). Root `.git` is source.
 - Bun loads `.env` from cwd; `apps/api` needs its own `.env` copy.
