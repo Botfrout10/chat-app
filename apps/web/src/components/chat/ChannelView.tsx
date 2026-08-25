@@ -297,8 +297,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     }
   }
 
-  if (isLoading) return <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading messages…</div>;
-
+  // NOTE: must stay above any early return — all hooks run unconditionally
   const readByMap = useMemo(() => {
     const m = new Map<string, any[]>();
     for (const r of (channelMembers as any[]) ?? []) {
@@ -309,6 +308,8 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     }
     return m;
   }, [channelMembers, meId]);
+
+  if (isLoading) return <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading messages…</div>;
 
   const isDm = channel?.type === "dm";
   const title = isDm ? `@${channel?.dmPeer?.name ?? "direct message"}` : `#${channel?.name ?? channelId.slice(0, 8)}`;
