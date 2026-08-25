@@ -65,7 +65,7 @@ Chat with LLMs; delegate real work to external agents. **Connect-only**: the app
 
 - LLM access via **OpenAI-compatible API** so one client covers LM Studio, Ollama, vLLM, and most cloud providers; Anthropic gets a thin adapter later.
 - First LLM target: **LM Studio** (its `/v1/models` endpoint gives us existence checks + capability discovery for free).
-- Agents connect over **ACP** (Agent Client Protocol); first agent target: **OpenCode** (beta OK).
+- Agents connect over **ACP** (Agent Client Protocol); first agent target: **OpenCode** (beta OK). The client is **agent-agnostic** — any ACP-compliant agent connects; nothing OpenCode-specific in the schema (endpoint, auth secret, handshake-reported name/version/capabilities only). Standardize on the **networked transport** (HTTP/WS, e.g. `opencode serve`); stdio-only agents need a tiny local shim — document it, don't build it initially.
 - Connected LLMs are **personal**: visible and mentionable only by the user who connected them (no cost/quota sharing problems).
 - Agent execution happens on the **user's machine/VPS**; the app holds an authenticated control channel (same relay pattern as the LLM proxy, one level up). Hosted sandboxes deliberately out of scope — revisit only if there is demand; schema will keep room for a "hosted provider" type.
 - AI conversations live **inside workspaces**, reusing DM find-or-create.
@@ -79,6 +79,9 @@ Chat with LLMs; delegate real work to external agents. **Connect-only**: the app
 - [ ] API: completion proxy with **streaming relay** into Socket.IO room `channel:<id>` (timeouts + client-abort handled server-side)
 - [ ] Per-connection DM chat (reuse DM find-or-create; conversation history = normal `message` rows, `senderType: 'llm'`)
 - [ ] Mention-triggered replies in channels/threads: `@model-name …` → completion with channel/thread context window; responses persist as messages so search/notifications work unchanged
+  - Extend the existing member-mention matching with a second pass over the **sender's own** `llm_connection` rows (name/label/alias) — no pipeline fork; mention rows get a `type: user | llm` discriminator
+  - `llm` mentions trigger a streaming completion job instead of a notification; notifications worker skips email for them (decide during build whether an activity/unread signal is still emitted)
+  - Edge cases: multiple models mentioned → one reply each, serialized per connection · abort on message delete/edit mid-generation · generation timeout · typing indicator while streaming · per-user completion rate limit
 - [ ] Guardrails: per-user rate limits on completions, max context/messages sent upstream, typing indicator during generation
 - [ ] Web: connect-model flow (URL + model name + live validation), model status page, streaming message rendering, tool-call/vision request UI hooks
 - [ ] Mobile: read + send in AI chats (parity slice after web stabilizes)
