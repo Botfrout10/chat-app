@@ -88,6 +88,8 @@ export const message = pgTable("message", {
   senderId: text("sender_id").notNull().references(() => user.id),
   parentId: text("parent_id").references((): any => message.id, { onDelete: "set null" }),
   content: text("content").notNull(),
+  // chain-of-thought / thinking output from reasoning models (AI messages)
+  reasoning: text("reasoning"),
   nonce: varchar("nonce", { length: 64 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   editedAt: timestamp("edited_at", { withTimezone: true }),
