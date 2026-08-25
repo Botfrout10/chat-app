@@ -26,6 +26,10 @@ export function MessageComposer({
   onStateCleared,
   onSend,
   onEditSave,
+  onAttach,
+  pendingAttachments,
+  onRemoveAttachment,
+  uploading,
 }: {
   channelId: string;
   disabled?: boolean;
@@ -33,6 +37,10 @@ export function MessageComposer({
   onStateCleared: () => void;
   onSend: (content: string) => Promise<unknown>;
   onEditSave: (messageId: string, content: string) => Promise<unknown>;
+  onAttach?: () => void;
+  pendingAttachments?: string[];
+  onRemoveAttachment?: (index: number) => void;
+  uploading?: boolean;
 }) {
   const t = useTheme();
   const [text, setText] = useState("");
@@ -94,6 +102,22 @@ export function MessageComposer({
 
   return (
     <View style={[styles.wrap, { backgroundColor: t.background, borderTopColor: t.border }]}>
+      {!!pendingAttachments?.length && (
+        <View style={styles.attachRow}>
+          {pendingAttachments.map((name, i) => (
+            <Pressable
+              key={`${name}-${i}`}
+              onPress={() => onRemoveAttachment?.(i)}
+              style={[styles.attachChip, { backgroundColor: t.accent50, borderColor: t.border }]}
+            >
+              <Text style={{ color: t.accent700, fontSize: 12, maxWidth: 140 }} numberOfLines={1}>
+                {name}
+              </Text>
+              <Ionicons name="close-circle" size={14} color={t.mutedForeground} />
+            </Pressable>
+          ))}
+        </View>
+      )}
       {state.kind === "reply" && (
         <View style={[styles.contextBar, { backgroundColor: t.muted }]}>
           <Ionicons name="arrow-undo" size={13} color={t.mutedForeground} />
@@ -116,6 +140,21 @@ export function MessageComposer({
       )}
 
       <View style={styles.inputRow}>
+        {!!onAttach && state.kind === "idle" && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Attach file"
+            onPress={onAttach}
+            disabled={disabled || uploading}
+            style={[styles.attachBtn, { backgroundColor: t.muted, opacity: uploading ? 0.5 : 1 }]}
+          >
+            {uploading ? (
+              <ActivityIndicator size="small" color={t.primary} />
+            ) : (
+              <Ionicons name="add-circle-outline" size={24} color={t.primary} />
+            )}
+          </Pressable>
+        )}
         <TextInput
           style={[
             styles.input,
@@ -170,6 +209,29 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     gap: 8,
     padding: 10,
+  },
+  attachBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  attachRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
+  attachChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   input: {
     flex: 1,

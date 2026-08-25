@@ -17,7 +17,12 @@ export default {
       bundler: "metro",
       output: "single",
     },
-    plugins: ["expo-router", "expo-status-bar", "expo-secure-store"],
+    plugins: [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store",
+      ["expo-image-picker", { photosPermission: "Allow Pulse to access your photos to share them in chat." }],
+    ],
     experiments: {
       typedRoutes: false,
     },

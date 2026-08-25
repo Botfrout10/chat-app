@@ -22,6 +22,7 @@ import { joinChannelRoom, leaveChannelRoom } from "@/hooks/useChatEvents";
 import { useMe, useMessages } from "@/hooks/queries";
 import { useSession } from "@/lib/session";
 import { useChatStore } from "@/stores/chat";
+import { pickDocument, pickImage, uploadAttachment, type UploadedMeta } from "@/lib/upload";
 import { useTheme } from "@/theme/useTheme";
 import type { MessagesPage, Message } from "@/types";
 import { ulid } from "ulid";
@@ -44,6 +45,9 @@ export default function ChannelView() {
   const [composerState, setComposerState] = useState<ComposerState>({ kind: "idle" });
   const [sheetFor, setSheetFor] = useState<Message | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [pending, setPending] = useState<UploadedMeta[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [attachSheet, setAttachSheet] = useState(false);
 
   // join/leave the socket room for live updates
   useEffect(() => {
@@ -64,7 +68,15 @@ export default function ChannelView() {
   }, [channelId, flat]);
 
   const sendMutation = useMutation({
-    mutationFn: async ({ content, parentId }: { content: string; parentId?: string }) => {
+    mutationFn: async ({
+      content,
+      parentId,
+      attachments,
+    }: {
+      content: string;
+      parentId?: string;
+      attachments?: UploadedMeta[];
+    }) => {
       const nonce = ulid();
       const optimistic: Message = {
         id: `temp-${nonce}`,
@@ -82,7 +94,12 @@ export default function ChannelView() {
       };
       insertOptimistic(channelId, queryClient, optimistic);
       try {
-        return await api.sendMessage(channelId, { content, parentId: parentId ?? null, nonce });
+        return await api.sendMessage(channelId, {
+          content,
+          parentId: parentId ?? null,
+          nonce,
+          attachments: attachments?.length ? attachments : undefined,
+        });
       } catch (e) {
         removeMessage(channelId, queryClient, optimistic.id);
         throw e;
@@ -104,6 +121,21 @@ export default function ChannelView() {
   function react(messageId: string, emoji: string, currentlyMine: boolean) {
     const call = currentlyMine ? api.unreact(messageId, emoji) : api.react(messageId, emoji);
     void call.catch(() => {});
+  }
+
+  async function handleAttach(kind: "image" | "file") {
+    setAttachSheet(false);
+    setUploading(true);
+    try {
+      const picked = kind === "image" ? await pickImage() : await pickDocument();
+      if (!picked) return;
+      const meta = await uploadAttachment(picked);
+      setPending((p) => [...p, meta]);
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
   }
 
   const sheetActions: Action[] = useMemo(() => {
@@ -248,16 +280,30 @@ export default function ChannelView() {
           channelId={channelId}
           state={composerState}
           onStateCleared={() => setComposerState({ kind: "idle" })}
-          onSend={(content) =>
-            sendMutation.mutateAsync({
+          onAttach={() => setAttachSheet(true)}
+          uploading={uploading}
+          pendingAttachments={pending.map((p) => p.filename)}
+          onRemoveAttachment={(i) => setPending((p) => p.filter((_, j) => j !== i))}
+          onSend={async (content) => {
+            await sendMutation.mutateAsync({
               content,
-              parentId:
-                composerState.kind === "reply" ? composerState.parentId : undefined,
-            })
-          }
+              parentId: composerState.kind === "reply" ? composerState.parentId : undefined,
+              attachments: pending,
+            });
+            if (!sendMutation.isError) setPending([]);
+          }}
           onEditSave={(id, content) => editMutation.mutateAsync({ id, content })}
         />
       </KeyboardAvoidingView>
+
+      <ActionSheet
+        visible={attachSheet}
+        onClose={() => setAttachSheet(false)}
+        actions={[
+          { key: "image", label: "Photo library", onPress: () => void handleAttach("image") },
+          { key: "file", label: "File…", onPress: () => void handleAttach("file") },
+        ]}
+      />
 
       <ActionSheet
         visible={!!sheetFor}
