@@ -2,7 +2,7 @@
 import { create } from "zustand";
 
 type Workspace = { id: string; name: string; slug: string };
-type Channel = { id: string; name: string; type: string; workspaceId: string; dmPeer?: { id: string; name: string } | null; lastReadMessageId?: string | null };
+type Channel = { id: string; name: string; type: string; workspaceId: string; dmPeer?: { id: string; name: string } | null; llmConnectionId?: string | null; lastReadMessageId?: string | null };
 
 type State = {
   workspaces: Workspace[];
@@ -17,6 +17,7 @@ type State = {
   setActiveChannel: (id: string | null) => void;
   setTyping: (channelId: string, userIds: string[]) => void;
   setPresence: (userId: string, status: string) => void;
+  setPresenceBulk: (map: Record<string, string>) => void;
 };
 
 export const useChatStore = create<State>((set) => ({
@@ -33,4 +34,5 @@ export const useChatStore = create<State>((set) => ({
   setTyping: (channelId, userIds) =>
     set((s) => ({ typingUsers: { ...s.typingUsers, [channelId]: userIds } })),
   setPresence: (userId, status) => set((s) => ({ presence: { ...s.presence, [userId]: status } })),
+  setPresenceBulk: (map) => set((s) => ({ presence: { ...s.presence, ...map } })),
 }));
