@@ -175,6 +175,27 @@ export const llmConnection = pgTable("llm_connection", {
   index("llm_owner_idx").on(t.ownerId),
 ]);
 
+// AI integrations (Phase B — external agents over ACP)
+export const agentRegistration = pgTable("agent_registration", {
+  id: text("id").primaryKey(), // ulid
+  ownerId: text("owner_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  // each connected agent is bound to exactly one workspace in the app,
+  // matching the machine the agent runs on (its tasks map to ACP sessions)
+  workspaceId: text("workspace_id").notNull().references(() => workspace.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 80 }).notNull(), // human label shown in sidebar
+  transport: varchar("transport", { length: 20 }).notNull().default("network").$type<"network" | "stdio">(),
+  endpoint: text("endpoint"), // ws(s)/http URL for the networked ACP transport
+  authSecret: text("auth_secret"), // ACP auth token; encryption-at-rest deferred to Phase C
+  status: varchar("status", { length: 20 }).notNull().default("pending").$type<"pending" | "online" | "offline" | "error">(),
+  capabilities: jsonb("capabilities"), // handshake-reported: agent name/version, tools…
+  machineMetadata: jsonb("machine_metadata"), // os, hostname, arch…
+  lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("agent_owner_idx").on(t.ownerId),
+  index("agent_workspace_idx").on(t.workspaceId),
+]);
+
 // Relations
 export const workspaceRelations = relations(workspace, ({ many, one }) => ({
   members: many(workspaceMember),
@@ -189,4 +210,9 @@ export const messageRelations = relations(message, ({ one, many }) => ({
   replies: many(message, { relationName: "thread" }),
   attachments: many(attachment),
   reactions: many(reaction),
+}));
+
+export const agentRegistrationRelations = relations(agentRegistration, ({ one }) => ({
+  owner: one(user, { fields: [agentRegistration.ownerId], references: [user.id] }),
+  workspace: one(workspace, { fields: [agentRegistration.workspaceId], references: [workspace.id] }),
 }));
