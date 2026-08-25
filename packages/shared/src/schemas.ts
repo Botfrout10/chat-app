@@ -62,3 +62,13 @@ export const searchSchema = z.object({
   q: z.string().min(1).max(100),
   channelId: z.string().optional(),
 });
+
+export const createLlmConnectionSchema = z.object({
+  label: z.string().min(1).max(80),
+  baseUrl: z.string().url().max(500),
+  modelId: z.string().min(1).max(200),
+  // @token used to mention the model; defaults to slugified label
+  mentionName: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/).optional(),
+});
+
+export const updateLlmConnectionSchema = createLlmConnectionSchema.partial();
