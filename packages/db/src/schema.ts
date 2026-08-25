@@ -157,6 +157,9 @@ export const notification = pgTable("notification", {  id: text("id").primaryKey
 export const llmConnection = pgTable("llm_connection", {
   id: text("id").primaryKey(), // ulid
   ownerId: text("owner_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  // synthetic user that authors the model's replies (email llm+<id>@llm.local);
+  // makes AI messages ordinary message rows with working joins
+  botUserId: text("bot_user_id").references(() => user.id, { onDelete: "set null" }),
   label: varchar("label", { length: 80 }).notNull(),
   mentionName: varchar("mention_name", { length: 80 }).notNull(), // @token matched in message content
   provider: varchar("provider", { length: 40 }).notNull().default("openai-compatible").$type<"openai-compatible" | "anthropic">(),
