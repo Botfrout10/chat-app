@@ -172,7 +172,7 @@ export async function triggerLlmReply(
       .values({ id, channelId: args.channelId, senderId: args.conn.botUserId!, content: full.trim() })
       .returning();
     const [bot] = await db.select().from(userTable).where(eq(userTable.id, args.conn.botUserId!));
-    const withSender = { ...msg, sender: bot, attachments: [], reactions: [] };
+    const withSender = { ...msg, sender: bot, attachments: [], reactions: [], llmConnectionId: args.conn.id };
     await redis.publish("chat:events", JSON.stringify({
       type: "message:new", channelId: args.channelId, llmConnectionId: args.conn.id, message: withSender,
     }));
