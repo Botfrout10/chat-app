@@ -27,6 +27,9 @@ import { useTheme } from "@/theme/useTheme";
 import type { MessagesPage, Message } from "@/types";
 import { ulid } from "ulid";
 
+/** Stable empty array — selectors must return cached values or React loops (getSnapshot). */
+const NO_TYPING: string[] = [];
+
 export default function ChannelView() {
   const t = useTheme();
   const router = useRouter();
@@ -39,7 +42,7 @@ export default function ChannelView() {
   const me = meQuery.data ?? null;
 
   const messagesQuery = useMessages(channelId);
-  const typingUsers = useChatStore((s) => s.typingUsers[channelId] ?? []);
+  const typingUsers = useChatStore((s) => s.typingUsers[channelId] ?? NO_TYPING);
   const presence = useChatStore((s) => s.presence);
 
   const [composerState, setComposerState] = useState<ComposerState>({ kind: "idle" });

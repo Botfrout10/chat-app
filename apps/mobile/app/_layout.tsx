@@ -32,7 +32,6 @@ function RootStack() {
           contentStyle: { backgroundColor: t.background },
         }}
       >
-        <Stack.Screen name="(auth)" options={{ animation: "fade" }} />
         <Stack.Screen name="channel/[id]" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="thread/[id]" options={{ animation: "slide_from_right" }} />
       </Stack>
