@@ -1,8 +1,9 @@
 import type { FastifyInstance } from "fastify";
+import { createHash } from "node:crypto";
 import { ulid } from "ulid";
 import { eq, and, or, sql } from "drizzle-orm";
 import { workspace, workspaceMember, channel, channelMember, user as userTable } from "@chat/db/schema";
-import { createWorkspaceSchema, inviteSchema, addMemberSchema } from "@chat/shared/schemas";
+import { createWorkspaceSchema, inviteSchema, addMemberSchema, createDmSchema } from "@chat/shared/schemas";
 import { slugify } from "@chat/shared/utils";
 
 export async function registerWorkspaceRoutes(app: FastifyInstance) {
@@ -88,11 +89,13 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
     }
 
     const q = parsed.data.user.trim();
+    // newest match wins when several users share a name
     const candidates = await db
       .select()
       .from(userTable)
       .where(or(sql`lower(${userTable.name}) = lower(${q})`, sql`lower(${userTable.email}) = lower(${q})`))
-      .limit(2);
+      .orderBy(sql`${userTable.createdAt} DESC`)
+      .limit(1);
     const target = candidates[0];
     if (!target) {
       return reply.code(404).send({ error: `No registered user found for “${q}”`, code: "USER_NOT_FOUND" });
@@ -134,7 +137,39 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
       })
       .returning();
     // In production send email; for dev return token
-    return { ...inv, inviteUrl: `${(app as any).server ? "" : ""}/invite/${token}` };
+    return { ...inv, inviteUrl: `/invite/${token}` };
+  });
+
+  // find-or-create a direct-message channel between me and another workspace member
+  app.post("/api/workspaces/:id/dm", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const parsed = createDmSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    if (parsed.data.userId === user.id) return reply.code(400).send({ error: "Cannot DM yourself" });
+    const db = (app as any).db;
+
+    const [isMember] = await db.select().from(workspaceMember).where(and(eq(workspaceMember.workspaceId, id), eq(workspaceMember.userId, user.id)));
+    if (!isMember) return reply.code(403).send({ error: "Forbidden" });
+    const [other] = await db.select().from(userTable).where(eq(userTable.id, parsed.data.userId));
+    if (!other) return reply.code(404).send({ error: "User not found" });
+
+    const pair = [user.id, other.id].sort().join(":");
+    const name = `dm-${createHash("sha1").update(pair).digest("hex").slice(0, 12)}`;
+
+    const [existing] = await db.select().from(channel).where(and(eq(channel.workspaceId, id), eq(channel.type, "dm"), eq(channel.name, name)));
+    if (existing) {
+      return { ...existing, dmPeer: { id: other.id, name: other.name }, created: false };
+    }
+
+    const chId = ulid();
+    const [ch] = await db.insert(channel).values({ id: chId, workspaceId: id, name, type: "dm", createdBy: user.id }).returning();
+    await db.insert(channelMember).values([
+      { channelId: chId, userId: user.id },
+      { channelId: chId, userId: other.id },
+    ]).onConflictDoNothing();
+    return { ...ch, dmPeer: { id: other.id, name: other.name }, created: true };
   });
 
   app.post("/api/invites/:token/accept", async (req, reply) => {

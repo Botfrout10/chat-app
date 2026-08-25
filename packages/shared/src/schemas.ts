@@ -14,16 +14,27 @@ export const addMemberSchema = z.object({
   role: z.enum(["admin", "member"]).default("member"),
 });
 
+export const createDmSchema = z.object({
+  userId: z.string().min(1).max(64),
+});
+
 export const createChannelSchema = z.object({
   name: z.string().min(2).max(50).regex(/^[a-z0-9-_]+$/, "lowercase letters, numbers, - _ only"),
   type: z.enum(["public", "private", "group", "dm"]).default("public"),
   memberIds: z.array(z.string()).optional(),
 });
 
+export const attachmentMetaSchema = z.object({
+  key: z.string().min(1).max(512),
+  filename: z.string().min(1).max(255),
+  mime: z.string().min(1).max(127),
+  size: z.number().int().min(0).max(25 * 1024 * 1024),
+});
+
 export const sendMessageSchema = z.object({
   content: z.string().min(1).max(4000),
   parentId: z.string().optional().nullable(),
-  attachmentKeys: z.array(z.string()).max(10).optional(),
+  attachments: z.array(attachmentMetaSchema).max(10).optional(),
   nonce: z.string().optional(), // idempotency
 });
 

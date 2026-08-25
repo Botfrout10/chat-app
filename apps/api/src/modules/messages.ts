@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { ulid } from "ulid";
 import { and, eq, lt, gt, desc, asc, sql } from "drizzle-orm";
-import { message, channelMember, channel, reaction, attachment, workspaceMember } from "@chat/db/schema";
+import { message, channelMember, channel, reaction, attachment, workspaceMember, mention } from "@chat/db/schema";
 import { sendMessageSchema, editMessageSchema, reactionSchema } from "@chat/shared/schemas";
 import { enforceRate } from "../lib/rateLimit.js";
 
@@ -123,22 +123,51 @@ export async function registerMessageRoutes(app: FastifyInstance) {
       })
       .returning();
 
-    // attach files if any: attachment keys already uploaded to MinIO, create records
-    if (parsed.data.attachmentKeys?.length) {
-      for (const key of parsed.data.attachmentKeys) {
-        // we don't validate HeadObject here for speed; client already uploaded
-        await db.insert(attachment).values({
+    // attachments: client presigned+uploaded already; persist real metadata for previews
+    const attRows: any[] = [];
+    if (parsed.data.attachments?.length) {
+      for (const a of parsed.data.attachments) {
+        const row = {
           id: ulid(),
           messageId: id,
-          key,
-          filename: key.split("/").pop() ?? key,
-          mime: "application/octet-stream",
-          size: 0,
-        });
+          key: a.key,
+          filename: a.filename,
+          mime: a.mime,
+          size: a.size,
+        };
+        await db.insert(attachment).values(row);
+        attRows.push(row);
       }
     }
 
-    const withSender = { ...msg, sender: user, attachments: [], reactions: [] };
+    // mentions: match @tokens against workspace member names/emails
+    const mentionRows: { messageId: string; channelId: string; mentionedUserId: string; senderId: string }[] = [];
+    try {
+      const tokens = new Set((parsed.data.content.match(/@([\p{L}\p{N}_.-]+)/gu) ?? []).map((t) => t.slice(1).toLowerCase()));
+      if (tokens.size) {
+        const { user: userTable, workspaceMember: wm, mention } = await import("@chat/db/schema");
+        const candidates = await db
+          .select({ u: userTable })
+          .from(wm)
+          .innerJoin(userTable, eq(wm.userId, userTable.id))
+          .where(eq(wm.workspaceId, ch.workspaceId));
+        for (const { u } of candidates) {
+          if (u.id === user.id) continue;
+          const uname = (u.name ?? "").toLowerCase();
+          const ulocal = (u.email ?? "").split("@")[0]?.toLowerCase() ?? "";
+          if ((uname && tokens.has(uname)) || (ulocal && tokens.has(ulocal))) {
+            mentionRows.push({ messageId: id, channelId, mentionedUserId: u.id, senderId: user.id });
+          }
+        }
+        if (mentionRows.length) {
+          await db.insert(mention).values(mentionRows).onConflictDoNothing();
+        }
+      }
+    } catch (e) {
+      app.log.error(`mention parse failed: ${(e as Error).message}`);
+    }
+
+    const withSender = { ...msg, sender: user, attachments: attRows, reactions: [], mentions: mentionRows.map((m) => m.mentionedUserId) };
 
     // publish to redis for WS fanout
     const redis = (app as any).redis;

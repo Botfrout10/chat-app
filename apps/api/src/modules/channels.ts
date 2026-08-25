@@ -16,7 +16,21 @@ export async function registerChannelRoutes(app: FastifyInstance) {
     // for private channels, only return where user is member
     const all = await db.select().from(channelMember).where(eq(channelMember.userId, user.id));
     const myChannelIds = new Set(all.map((r: any) => r.channelId));
-    return chans.filter((c: any) => c.type === "public" || myChannelIds.has(c.id));
+    const visible = chans.filter((c: any) => c.type === "public" || myChannelIds.has(c.id));
+
+    // attach peer info for dm/group channels so the UI can title them
+    const social = visible.filter((c: any) => c.type === "dm" || c.type === "group");
+    const { user: userTable } = await import("@chat/db/schema");
+    for (const c of social) {
+      const rows = await db
+        .select({ u: userTable })
+        .from(channelMember)
+        .innerJoin(userTable, eq(channelMember.userId, userTable.id))
+        .where(eq(channelMember.channelId, c.id));
+      const peers = rows.map((r: any) => ({ id: r.u.id, name: r.u.name })).filter((p: any) => p.id !== user.id);
+      (c as any).dmPeer = c.type === "dm" ? peers[0] ?? null : peers;
+    }
+    return visible;
   });
 
   app.post("/api/workspaces/:workspaceId/channels", async (req, reply) => {

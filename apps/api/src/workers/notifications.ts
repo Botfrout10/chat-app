@@ -53,6 +53,13 @@ async function processNotification(job: Job<NotifyJobData>, connection: IORedis)
     .innerJoin(user, eq(channelMember.userId, user.id))
     .where(eq(channelMember.channelId, ch.id));
 
+  // DB-recorded mentions are authoritative; regex tokens as fallback for robustness
+  let dbMentionIds = new Set<string>();
+  try {
+    const { mention } = await import("@chat/db/schema");
+    const mrows = await db.select().from(mention).where(eq(mention.messageId, msg.id));
+    dbMentionIds = new Set(mrows.map((m) => m.mentionedUserId));
+  } catch {}
   const mentionTokens = extractMentionTokens(String(msg.content));
   const senderName = msg.sender?.name ?? "Someone";
 
@@ -64,7 +71,7 @@ async function processNotification(job: Job<NotifyJobData>, connection: IORedis)
     if (cm.notificationPref === "nothing") continue;
     const uname = (u.name ?? "").toLowerCase();
     const ulocal = (u.email ?? "").split("@")[0]?.toLowerCase() ?? "";
-    const isMention = mentionTokens.has(uname) || (ulocal.length > 0 && mentionTokens.has(ulocal));
+    const isMention = dbMentionIds.has(u.id) || mentionTokens.has(uname) || (ulocal.length > 0 && mentionTokens.has(ulocal));
     const isDirectSpace = ch.type === "dm" || ch.type === "group";
     const kind: Kind | null = isMention ? "mention" : isDirectSpace ? "dm" : cm.notificationPref === "all" ? "channel" : null;
     if (!kind) continue;
@@ -86,15 +93,16 @@ async function processNotification(job: Job<NotifyJobData>, connection: IORedis)
   }
 
   const verb: Record<Kind, string> = {
-    mention: "mentioned you in",
-    dm: "sent a message in",
-    thread: "replied to your thread in",
+    mention: "mentioned you",
+    dm: "sent you a message",
+    thread: "replied to your thread",
     channel: "posted in",
   };
 
   for (const t of targets.values()) {
     const id = ulid();
-    const title = `${senderName} ${verb[t.kind]} #${ch.name}`;
+    const place = t.kind === "channel" || t.kind === "thread" ? ` in #${ch.name}` : "";
+    const title = `${senderName} ${verb[t.kind]}${place}`;
     const body = String(msg.content).slice(0, 280);
     await db.insert(notification).values({
       id,
