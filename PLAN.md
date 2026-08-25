@@ -91,12 +91,12 @@ Chat with LLMs; delegate real work to external agents. **Connect-only**: the app
 
 ### Phase B — Agents (real work)
 
-- [ ] DB: `agent_registration` — owner, workspace link, endpoint/host info, auth secret, machine metadata, heartbeat
+- [x] DB: `agent_registration` — owner, workspace link, transport (network/stdio), endpoint/host info, auth secret, status, machine metadata, capabilities, heartbeat (`fea9fc4`)
 - [ ] Local setup path: documented one-command flow (`opencode serve` + paste URL/token); remote VPS same shape
-- [ ] API: ACP client — initialize/session lifecycle, prompt submission, streamed updates (agent messages, tool calls, plans) fanned out to the workspace socket room
+- [ ] shared: `agentRegistrationSchema` (create + update zod), `AgentStatus` enum
+- [ ] API: CRUD + `POST /api/agents/:id/verify` (handshake touch) + `GET /api/agents/:id/status`; ACP client — initialize/session lifecycle, prompt submission, streamed updates (agent messages, tool calls, plans) fanned out to the workspace socket room
 - [ ] Each agent gets its own **workspace** in the app bound to the user-managed machine; task threads map to ACP sessions
-- [ ] Web: rich rendering of ACP events — agent text, tool calls, file diffs, permission/approval prompts surfaced as interactive messages
-- [ ] Status page: connection state, agent name/version, active sessions, last heartbeat
+- [ ] Web: agents sidebar section + status page; rich rendering of ACP events — agent text, tool calls, file diffs, permission/approval prompts surfaced as interactive messages
 - [ ] Mobile: minimal — read agent output, approve/deny prompts
 
 ### Phase C — Later
