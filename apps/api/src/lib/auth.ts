@@ -19,7 +19,7 @@ export function createAuth() {
     emailAndPassword: { enabled: true },
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
-    trustedOrigins: [env.WEB_URL, env.API_URL, "http://localhost:3000"],
+    trustedOrigins: [env.WEB_URL, env.API_URL, "http://localhost:3000", ...env.EXTRA_ORIGINS],
     session: { cookieCache: { enabled: true } },
     advanced: {
       crossSubDomainCookies: { enabled: false },

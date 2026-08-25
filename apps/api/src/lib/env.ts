@@ -5,6 +5,11 @@ export const env = {
   HOST: process.env.API_HOST ?? "0.0.0.0",
   WEB_URL: process.env.WEB_URL ?? "http://localhost:3000",
   API_URL: process.env.API_URL ?? "http://localhost:3001",
+  // extra CORS/trusted origins (comma-separated) — e.g. Expo web dev server
+  EXTRA_ORIGINS: (process.env.EXTRA_ORIGINS ?? "http://localhost:8081")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
   BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET ?? "dev-secret-change-me-32-chars-min",
   BETTER_AUTH_URL: process.env.BETTER_AUTH_URL ?? "http://localhost:3001",
   S3_ENDPOINT: process.env.S3_ENDPOINT ?? "http://localhost:9000",

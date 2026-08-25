@@ -23,8 +23,10 @@ import { enforceRate, registerRateLimitCommands } from "./lib/rateLimit.js";
 
 const app = Fastify({ logger: true });
 
+const allowedOrigins = [env.WEB_URL, "http://localhost:3000", ...env.EXTRA_ORIGINS];
+
 await app.register(cors, {
-  origin: [env.WEB_URL, "http://localhost:3000"],
+  origin: allowedOrigins,
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
@@ -112,7 +114,7 @@ app.log.info(`API listening on ${env.HOST}:${env.PORT}`);
 
 // Socket.IO on same http server
 const io = new IOServer(app.server, {
-  cors: { origin: [env.WEB_URL, "http://localhost:3000"], credentials: true },
+  cors: { origin: allowedOrigins, credentials: true },
   path: "/socket.io",
 });
 
