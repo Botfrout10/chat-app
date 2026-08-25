@@ -1,7 +1,7 @@
 "use client";
-import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useLightbox } from "@/components/ui/ImageLightbox";
 
 const SPLIT = /(@[\p{L}\p{N}_.-]+)/gu;
 
@@ -75,12 +75,7 @@ export function AttachmentPreview({ att }: { att: { key: string; filename: strin
   const url = fileUrlFor(att.key);
   const mime = att.mime ?? "";
   if (mime.startsWith("image/")) {
-    return (
-      <a href={url} target="_blank" rel="noreferrer" className="inline-block">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={att.filename} className="max-h-64 max-w-full rounded-xl border border-[var(--border)] object-cover hover:opacity-90 transition-opacity" />
-      </a>
-    );
+    return <ImageThumb url={url} alt={att.filename} />;
   }
   return (
     <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 hover:bg-[var(--muted)] w-fit">
@@ -90,6 +85,16 @@ export function AttachmentPreview({ att }: { att: { key: string; filename: strin
         <span className="block text-xs text-[var(--muted-foreground)]">{fmtSize(att.size)}</span>
       </span>
     </a>
+  );
+}
+
+function ImageThumb({ url, alt }: { url: string; alt: string }) {
+  const { open } = useLightbox();
+  return (
+    <button type="button" onClick={() => open(url, alt)} className="inline-block rounded-xl overflow-hidden border border-[var(--border)] hover:opacity-90 transition-opacity">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt={alt} className="max-h-64 max-w-full object-cover" />
+    </button>
   );
 }
 
