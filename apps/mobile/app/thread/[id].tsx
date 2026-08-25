@@ -54,7 +54,6 @@ export default function ThreadView() {
   const me = meQuery.data ?? null;
 
   const blocker = useRequireSession();
-  if (blocker) return blocker;
 
   const repliesQuery = useReplies(threadId);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -114,6 +113,10 @@ export default function ThreadView() {
     },
     onError: (e) => setSendError(e instanceof Error ? e.message : "Failed to reply"),
   });
+
+  // Session guard — must stay BELOW all hooks so the hook order is stable
+  // whether or not the blocker short-circuits the render.
+  if (blocker) return blocker;
 
   const rows = dedupe([...(repliesQuery.data ?? [])]);
 
