@@ -1,0 +1,25 @@
+export default {
+  expo: {
+    name: "Pulse",
+    slug: "pulse-chat",
+    scheme: "pulse",
+    version: "1.0.0",
+    orientation: "portrait",
+    userInterfaceStyle: "automatic",
+    ios: {
+      supportsTablet: true,
+      bundleIdentifier: "dev.pulse.chat",
+    },
+    android: {
+      package: "dev.pulse.chat",
+    },
+    web: {
+      bundler: "metro",
+      output: "single",
+    },
+    plugins: ["expo-router", "expo-status-bar", "expo-secure-store"],
+    experiments: {
+      typedRoutes: false,
+    },
+  },
+};
