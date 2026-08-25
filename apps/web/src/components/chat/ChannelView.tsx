@@ -196,7 +196,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   const title = isDm ? `@${channel?.dmPeer?.name ?? "direct message"}` : `#${channel?.name ?? channelId.slice(0, 8)}`;
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 bg-[var(--background)]">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--background)]">
       <div className="h-14 border-b border-[var(--border)] flex items-center px-4 justify-between shrink-0 bg-[var(--card)]">
         <div className="flex items-center gap-2">
           <span className="h-6 w-6 rounded-lg bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center text-xs font-bold text-[var(--muted-foreground)]">{isDm ? "@" : "#"}</span>
@@ -212,7 +212,8 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         </div>
       </div>
 
-      <div ref={listRef} className="flex-1 overflow-y-auto py-2 bg-[var(--background)]">
+      <div ref={listRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--background)]">
+        <div className="flex-1 py-2">
         {allMessages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
             <div className="h-12 w-12 rounded-2xl bg-[var(--accent-100)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] flex items-center justify-center text-xl">💬</div>
@@ -225,9 +226,10 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           ))
         )}
         {typing.length > 0 && <div className="px-4 py-1 text-xs text-[var(--muted-foreground)] italic bg-[var(--accent-50)] dark:bg-white/5 border-y border-[var(--border)]">{typing.length === 1 ? "Someone is typing…" : `${typing.length} people are typing…`}</div>}
+        </div>
       </div>
 
-      <div className="border-t border-[var(--border)] p-3 bg-[var(--card)] relative">
+      <div className="border-t border-[var(--border)] p-3 bg-[var(--card)] relative shrink-0">
         {replyTo && <div className="mb-2 text-xs text-[var(--primary)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2">↩ Replying to {replyTo.slice(0, 8)} <button onClick={() => setReplyTo(null)} className="ml-2 underline">cancel</button></div>}
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">

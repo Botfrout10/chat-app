@@ -10,14 +10,15 @@ function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
   const initialMode = params.get("mode") === "signup" ? "signup" : "signin";
+  const isSwitchMode = params.get("switch") === "1";
   const [mode, setMode] = useState<"signin" | "signup">(initialMode as any);
   const { data: me, isLoading: meLoading } = useQuery({
     queryKey: ["me"],
     queryFn: () => api.me().catch(() => null),
   });
   useEffect(() => {
-    if (!meLoading && (me as any)?.id) router.replace("/");
-  }, [me, meLoading, router]);
+    if (!meLoading && (me as any)?.id && !isSwitchMode) router.replace("/");
+  }, [me, meLoading, router, isSwitchMode]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");

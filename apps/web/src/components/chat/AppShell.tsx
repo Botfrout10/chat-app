@@ -374,7 +374,7 @@ export function AppShell() {
           {showAccountMenu && (
             <div className="absolute bottom-full left-2 right-2 mb-2 rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-card)] overflow-hidden z-20">
               <button
-                onClick={() => { setShowAccountMenu(false); window.location.href = "/login"; }}
+                onClick={() => { setShowAccountMenu(false); window.location.href = "/login?switch=1"; }}
                 className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] text-left"
               >
                 <span className="text-xs">⇄</span> Switch account
