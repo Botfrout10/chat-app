@@ -345,8 +345,8 @@ export function AppShell() {
                   className={`w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-2 border ${activeChannelId === c.id ? "bg-[var(--primary)] text-[var(--primary-foreground)] border-transparent shadow-[var(--shadow-soft)]" : "text-white/60 border-transparent hover:bg-white/5 hover:text-white"}`}
                 >
                   <span className="text-xs opacity-70">{c.type === "dm" ? "@" : "#"}</span>
-                  <span className="truncate">{c.type === "dm" ? c.dmPeer?.name ?? "direct message" : c.name}</span>
-                  {c.type !== "dm" && <span className="ml-auto text-xs opacity-50">{c.type}</span>}
+                  <span className="truncate flex-1">{c.type === "dm" ? c.dmPeer?.name ?? "direct message" : c.name}</span>
+                  {c.lastReadMessageId ? null : <span className="h-2 w-2 rounded-full bg-[var(--accent)] shrink-0 ml-auto" title="Unread" />}
                 </button>
               ))}
               {channels.length === 0 && <div className="text-xs text-white/40">No channels yet — try “general”.</div>}

@@ -172,6 +172,37 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
     return { ...ch, dmPeer: { id: other.id, name: other.name }, created: true };
   });
 
+  app.get("/api/invites/:token", async (req, reply) => {
+    const { token } = req.params as any;
+    const db = (app as any).db;
+    const { invite } = await import("@chat/db/schema");
+    const [inv] = await db.select().from(invite).where(eq(invite.token, token));
+    if (!inv) return reply.code(404).send({ error: "Invite not found" });
+    const [ws] = await db.select().from(workspace).where(eq(workspace.id, inv.workspaceId));
+    if (!ws) return reply.code(404).send({ error: "Workspace not found" });
+    let alreadyMember = false;
+    try {
+      const viewer = await (app as any).getSessionUser(req);
+      if (viewer) {
+        const [mem] = await db
+          .select()
+          .from(workspaceMember)
+          .where(and(eq(workspaceMember.workspaceId, inv.workspaceId), eq(workspaceMember.userId, viewer.id)));
+        alreadyMember = !!mem;
+      }
+    } catch {}
+    return {
+      workspace: { id: ws.id, name: ws.name, slug: ws.slug },
+      email: inv.email,
+      role: inv.role,
+      expiresAt: inv.expiresAt,
+      acceptedAt: inv.acceptedAt,
+      isExpired: inv.expiresAt < new Date(),
+      isAccepted: !!inv.acceptedAt,
+      alreadyMember,
+    };
+  });
+
   app.post("/api/invites/:token/accept", async (req, reply) => {
     const user = await (app as any).getSessionUser(req);
     if (!user) return reply.code(401).send({ error: "Unauthorized" });

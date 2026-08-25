@@ -48,7 +48,11 @@ export const api = {
   invite: (wsId: string, email: string, role: string) => req(`/api/workspaces/${wsId}/invites`, { method: "POST", body: JSON.stringify({ email, role }) }),
   addMember: (wsId: string, user: string) => req(`/api/workspaces/${wsId}/members`, { method: "POST", body: JSON.stringify({ user }) }),
   members: (wsId: string) => req(`/api/workspaces/${wsId}/members`),
-  acceptInvite: (token: string) => req(`/api/invites/${token}/accept`, { method: "POST" }),
+  channelMembers: (channelId: string) => req(`/api/channels/${channelId}/members`),
+  markRead: (channelId: string, lastReadMessageId: string) =>
+    req(`/api/channels/${channelId}/read`, { method: "PATCH", body: JSON.stringify({ lastReadMessageId }) }),
+  inviteMeta: (token: string) => req(`/api/invites/${token}`),
+  acceptInvite: (token: string) => req(`/api/invites/${token}/accept`, { method: "POST", body: JSON.stringify({}) }),
   notifications: () => req(`/api/notifications`),
   markNotificationRead: (id: string) => req(`/api/notifications/${id}/read`, { method: "POST", body: JSON.stringify({}) }),
   markAllNotificationsRead: () => req(`/api/notifications/read-all`, { method: "POST", body: JSON.stringify({}) }),

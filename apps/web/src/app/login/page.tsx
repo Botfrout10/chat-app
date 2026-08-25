@@ -36,7 +36,9 @@ function LoginInner() {
       } else {
         await api.authSignIn(email, password);
       }
-      router.push("/");
+      const redirect = params.get("redirect");
+      if (redirect && redirect.startsWith("/")) router.replace(redirect);
+      else router.push("/");
     } catch (e: any) {
       setErr(e.message ?? "Failed");
     } finally {

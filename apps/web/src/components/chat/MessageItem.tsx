@@ -16,7 +16,7 @@ type Msg = {
   attachments?: { key: string; filename: string; mime?: string; size?: number }[];
 };
 
-export function MessageItem({ msg, onReply, isOwn, memberTokens, meName }: { msg: Msg; onReply?: (id: string) => void; isOwn?: boolean; memberTokens?: Set<string>; meName?: string }) {
+export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy }: { msg: Msg; onReply?: (id: string) => void; isOwn?: boolean; memberTokens?: Set<string>; meName?: string; readBy?: { id: string; name: string; image?: string | null }[] }) {
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
   const [showActions, setShowActions] = useState(false);
@@ -89,6 +89,21 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName }: { msg
                 <span>{emoji}</span><span className="text-[var(--muted-foreground)]">{count}</span>
               </button>
             ))}
+          </div>
+        )}
+
+        {readBy && readBy.length > 0 && (
+          <div className="mt-1 flex items-center justify-end gap-1" title={`Read by ${readBy.map((r) => r.name).join(", ")}`}>
+            {readBy.slice(0, 4).map((r) => (
+              <span
+                key={r.id}
+                className="h-5 w-5 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] text-[var(--primary-foreground)] text-[9px] font-bold flex items-center justify-center ring-2 ring-[var(--card)] -ml-1 first:ml-0"
+                title={r.name}
+              >
+                {String(r.name ?? "?").slice(0, 2).toUpperCase()}
+              </span>
+            ))}
+            {readBy.length > 4 && <span className="text-xs text-[var(--muted-foreground)] ml-1">+{readBy.length - 4}</span>}
           </div>
         )}
       </div>

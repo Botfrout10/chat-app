@@ -18,9 +18,17 @@ export async function registerChannelRoutes(app: FastifyInstance) {
     const myChannelIds = new Set(all.map((r: any) => r.channelId));
     const visible = chans.filter((c: any) => c.type === "public" || myChannelIds.has(c.id));
 
+    // attach unread hint and peer info for dm/group channels
+    const { user: userTable } = await import("@chat/db/schema");
+    const readRows = await db
+      .select({ channelId: channelMember.channelId, lastReadMessageId: channelMember.lastReadMessageId })
+      .from(channelMember)
+      .where(eq(channelMember.userId, user.id));
+    const readByChannel = new Map<string, string | null>(readRows.map((r: any) => [r.channelId, r.lastReadMessageId]));
+    for (const c of visible) (c as any).lastReadMessageId = readByChannel.get(c.id) ?? null;
+
     // attach peer info for dm/group channels so the UI can title them
     const social = visible.filter((c: any) => c.type === "dm" || c.type === "group");
-    const { user: userTable } = await import("@chat/db/schema");
     for (const c of social) {
       const rows = await db
         .select({ u: userTable })

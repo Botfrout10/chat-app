@@ -31,6 +31,16 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   const allMessages = (data?.pages.flatMap((p) => p.messages) ?? []).slice().reverse();
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: () => api.me().catch(() => null) });
+  const meId: string | null = (me as any)?.id ?? null;
+  const meName: string = (me as any)?.name ?? "";
+
+  // members of this channel (read receipts)
+  const { data: channelMembers } = useQuery({
+    queryKey: ["channelMembers", channelId],
+    queryFn: () => api.channelMembers(channelId).catch(() => []),
+    enabled: !!channelId,
+    refetchInterval: 20_000,
+  });
 
   // connected models: streaming state, typing indicator, mention candidates
   const { data: llmConnections } = useQuery({
@@ -65,6 +75,10 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       if (msg?.llmConnectionId) {
         setStream((cur) => (cur?.connectionId === msg.llmConnectionId ? null : cur));
         setLlmTyping((cur) => (cur === msg.llmConnectionId ? null : cur));
+      }
+      // auto-mark read when in view and at bottom
+      if (meId && isAtBottomRef.current && msg?.id) {
+        api.markRead(channelId, msg.id).catch(() => {});
       }
       setTimeout(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }), 50);
     };
@@ -143,9 +157,48 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     return () => { s.off("typing:update", handler); };
   }, [channelId]);
 
+  const isAtBottomRef = useRef(true);
+  const lastMarkedRef = useRef<string | null>(null);
+  const markReadAtBottom = () => {
+    const latest = allMessages.at(-1)?.id;
+    if (!latest || latest === lastMarkedRef.current || !meId || !isAtBottomRef.current) return;
+    lastMarkedRef.current = latest;
+    api.markRead(channelId, latest).catch(() => {});
+  };
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    };
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
   useEffect(() => {
     if (listRef.current && allMessages.length) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [allMessages.length]);
+
+  useEffect(() => {
+    markReadAtBottom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allMessages.length, meId, channelId]);
+
+  // read receipts: keep channelMembers fresh
+  useEffect(() => {
+    const s = getSocket();
+    const h = (evt: any) => {
+      if (evt.channelId !== channelId) return;
+      qc.setQueryData(["channelMembers", channelId], (prev: any) => {
+        if (!prev) return prev;
+        return (prev as any[]).map((m: any) => (m.id === evt.userId ? { ...m, lastReadMessageId: evt.lastReadMessageId } : m));
+      });
+    };
+    s.on("read:receipt", h);
+    return () => { s.off("read:receipt", h); };
+  }, [channelId, qc]);
 
   let typingTimeout: any;
   function handleTyping(v: string) {
@@ -246,6 +299,17 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
 
   if (isLoading) return <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading messages…</div>;
 
+  const readByMap = useMemo(() => {
+    const m = new Map<string, any[]>();
+    for (const r of (channelMembers as any[]) ?? []) {
+      if (!r.lastReadMessageId || r.id === meId) continue;
+      const arr = m.get(r.lastReadMessageId);
+      if (arr) arr.push(r);
+      else m.set(r.lastReadMessageId, [r]);
+    }
+    return m;
+  }, [channelMembers, meId]);
+
   const isDm = channel?.type === "dm";
   const title = isDm ? `@${channel?.dmPeer?.name ?? "direct message"}` : `#${channel?.name ?? channelId.slice(0, 8)}`;
 
@@ -276,7 +340,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           </div>
         ) : (
           allMessages.map((m: any) => (
-            <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={me?.id === m.senderId} memberTokens={memberTokens} meName={me?.name} />
+            <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={meId === m.senderId} memberTokens={memberTokens} meName={meName} readBy={readByMap.get(m.id) ?? []} />
           ))
         )}
         {stream && (
