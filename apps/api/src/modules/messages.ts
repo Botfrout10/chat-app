@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import { and, eq, lt, gt, desc, asc, sql } from "drizzle-orm";
 import { message, channelMember, channel, reaction, attachment, workspaceMember } from "@chat/db/schema";
 import { sendMessageSchema, editMessageSchema, reactionSchema } from "@chat/shared/schemas";
+import { enforceRate } from "../lib/rateLimit.js";
 
 export async function registerMessageRoutes(app: FastifyInstance) {
   // list messages with cursor pagination: ?before=<ulid>&after=<ulid>&limit=50
@@ -76,10 +77,11 @@ export async function registerMessageRoutes(app: FastifyInstance) {
     return { messages: ordered, nextCursor, hasMore };
   });
 
-  // send message
+  // send message — 10 per 10s per user (spam guard)
   app.post("/api/channels/:id/messages", async (req, reply) => {
     const user = await (app as any).getSessionUser(req);
     if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    if (!(await enforceRate(app.redis, req, reply, { name: "msg-send", max: 10, windowMs: 10_000, subject: user.id }))) return;
     const { id: channelId } = req.params as any;
     const parsed = sendMessageSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
@@ -190,6 +192,7 @@ export async function registerMessageRoutes(app: FastifyInstance) {
   app.post("/api/messages/:id/reactions", async (req, reply) => {
     const user = await (app as any).getSessionUser(req);
     if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    if (!(await enforceRate(app.redis, req, reply, { name: "react", max: 30, windowMs: 60_000, subject: user.id }))) return;
     const { id: messageId } = req.params as any;
     const parsed = reactionSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send(parsed.error.flatten());

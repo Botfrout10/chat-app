@@ -69,4 +69,4 @@ Agents MUST commit regularly — after every completed unit of work. Do not leav
 
 ## Next work
 
-- Add `drizzle-kit generate` migrations, rate limiting, OpenSearch, and `@ai` bot (Ollama RAG).
+- Search v2 (`tsvector` GIN), OpenSearch, and `@ai` bot (Ollama RAG).

@@ -2,12 +2,14 @@ import type { FastifyInstance } from "fastify";
 import { sql, and, eq } from "drizzle-orm";
 import { message, channel, channelMember, workspaceMember } from "@chat/db/schema";
 import { searchSchema } from "@chat/shared/schemas";
+import { enforceRate } from "../lib/rateLimit.js";
 
 export async function registerSearchRoutes(app: FastifyInstance) {
   // Full-text search using Postgres ilike for MVP (tsvector migration can be added later)
   app.get("/api/search", async (req, reply) => {
     const user = await (app as any).getSessionUser(req);
     if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    if (!(await enforceRate(app.redis, req, reply, { name: "search", max: 60, windowMs: 60_000, subject: user.id }))) return;
     const parsed = searchSchema.safeParse(req.query);
     if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
     const { q, channelId } = parsed.data;

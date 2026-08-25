@@ -18,6 +18,7 @@ import { registerNotificationRoutes } from "./modules/notifications.js";
 import { setupSocket } from "./modules/socket.js";
 import { startNotificationWorker, stopNotificationWorker } from "./workers/notifications.js";
 import { closeQueue } from "./lib/queue.js";
+import { enforceRate, registerRateLimitCommands } from "./lib/rateLimit.js";
 
 const app = Fastify({ logger: true });
 
@@ -80,6 +81,16 @@ app.decorate("db", db);
 app.decorate("redis", redis);
 app.decorate("s3", s3);
 app.decorate("getSessionUser", getSessionUser);
+
+// global per-IP rate guard for /api/* (auth routes excluded — better-auth has its own)
+registerRateLimitCommands(redis);
+app.addHook("onRequest", async (req, reply) => {
+  if (req.method === "OPTIONS") return;
+  const url = req.url.split("?")[0];
+  if (!url.startsWith("/api/") || url.startsWith("/api/auth/")) return;
+  const ok = await enforceRate(redis, req, reply, { name: "global-ip", max: 600, windowMs: 60_000, subject: req.ip });
+  if (!ok) return reply;
+});
 
 // routes
 await registerUserRoutes(app);
