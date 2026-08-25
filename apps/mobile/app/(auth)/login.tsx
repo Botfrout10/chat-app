@@ -1,0 +1,214 @@
+import { z } from "zod";
+
+import { api } from "@/api/client";
+import { useRouter } from "expo-router";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { useSession } from "@/lib/session";
+import { useTheme } from "@/theme/useTheme";
+
+const credentialsSchema = z.object({
+  email: z.string().email("Enter a valid email"),
+  password: z.string().min(8, "At least 8 characters"),
+});
+
+export default function Login() {
+  const t = useTheme();
+  const router = useRouter();
+  const { signIn } = useSession();
+
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setError(null);
+    const parsed = credentialsSchema.safeParse({ email, password });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? "Invalid input");
+      return;
+    }
+    if (mode === "signup" && name.trim().length < 1) {
+      setError("Enter your name");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res =
+        mode === "signin"
+          ? await api.authSignIn(email.trim(), password)
+          : await api.authSignUp(email.trim(), password, name.trim());
+      if (!res?.token) throw new Error("No session token in response");
+      await signIn(res.token);
+      router.replace("/(tabs)/chats");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SafeAreaView style={[styles.safe, { backgroundColor: t.sidebar }]}>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <View style={[styles.hero, { backgroundColor: t.sidebar }]}>
+          <Text style={styles.logo}>Pulse</Text>
+          <Text style={[styles.tagline, { color: t.accent300 }]}>
+            Team chat, anywhere.
+          </Text>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: t.background }]}>
+          <Text style={[styles.heading, { color: t.foreground }]}>
+            {mode === "signin" ? "Welcome back" : "Create your account"}
+          </Text>
+
+          {mode === "signup" && (
+            <TextInput
+              style={[
+                styles.input,
+                { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground },
+              ]}
+              placeholder="Name"
+              placeholderTextColor={t.mutedForeground}
+              autoCapitalize="words"
+              value={name}
+              onChangeText={setName}
+            />
+          )}
+          <TextInput
+            style={[
+              styles.input,
+              { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground },
+            ]}
+            placeholder="Email"
+            placeholderTextColor={t.mutedForeground}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            value={email}
+            onChangeText={setEmail}
+          />
+          <TextInput
+            style={[
+              styles.input,
+              { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground },
+            ]}
+            placeholder="Password"
+            placeholderTextColor={t.mutedForeground}
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+          />
+
+          {!!error && <Text style={[styles.error, { color: t.destructive }]}>{error}</Text>}
+
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              { backgroundColor: busy ? t.primaryHover : t.primary, opacity: pressed ? 0.9 : 1 },
+            ]}
+            onPress={submit}
+          >
+            {busy ? (
+              <ActivityIndicator color={t.primaryForeground} />
+            ) : (
+              <Text style={[styles.primaryBtnText, { color: t.primaryForeground }]}>
+                {mode === "signin" ? "Sign in" : "Sign up"}
+              </Text>
+            )}
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              setMode(mode === "signin" ? "signup" : "signin");
+              setError(null);
+            }}
+            style={styles.switchWrap}
+          >
+            <Text style={[styles.switchText, { color: t.mutedForeground }]}>
+              {mode === "signin" ? "No account? " : "Already have an account? "}
+              <Text style={{ color: t.primary, fontWeight: "600" }}>
+                {mode === "signin" ? "Sign up" : "Sign in"}
+              </Text>
+            </Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1 },
+  flex: { flex: 1 },
+  hero: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logo: {
+    fontSize: 48,
+    fontWeight: "800",
+    color: "#5eead4",
+  },
+  tagline: {
+    fontSize: 15,
+    marginTop: 4,
+  },
+  card: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    gap: 12,
+    paddingBottom: 40,
+  },
+  heading: {
+    fontSize: 22,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    fontSize: 16,
+  },
+  error: {
+    fontSize: 13,
+  },
+  primaryBtn: {
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: "center",
+    marginTop: 4,
+  },
+  primaryBtnText: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  switchWrap: {
+    alignItems: "center",
+    marginTop: 6,
+  },
+  switchText: {
+    fontSize: 14,
+  },
+});

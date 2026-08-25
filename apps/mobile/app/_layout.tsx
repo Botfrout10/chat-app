@@ -3,6 +3,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { SessionProvider } from "@/lib/sessionProvider";
 import { useTheme } from "@/theme/useTheme";
 
 const queryClient = new QueryClient({
@@ -34,7 +35,9 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
-        <RootStack />
+        <SessionProvider>
+          <RootStack />
+        </SessionProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
   );
