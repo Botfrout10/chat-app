@@ -25,6 +25,17 @@ export function AppShell() {
   const [memberMsg, setMemberMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: () => api.me().catch(() => null) });
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
+  useEffect(() => {
+    if (!showAccountMenu) return;
+    const close = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("[data-account-menu]")) return;
+      setShowAccountMenu(false);
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [showAccountMenu]);
   const qc = useQueryClient();
 
   // notifications (poll + realtime)
@@ -348,13 +359,35 @@ export function AppShell() {
           </div>
         </div>
 
-        <div className="p-3 border-t border-[var(--sidebar-border)] flex items-center gap-2 bg-black/10">
-          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] text-xs font-bold">{(me?.name ?? "U").slice(0, 2).toUpperCase()}</div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium truncate text-white">{me?.name ?? me?.email ?? "User"}</div>
-            <div className="text-xs text-emerald-300 flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Online</div>
-          </div>
-          <Button variant="ghost" size="sm" onClick={async () => { await api.authSignOut(); location.reload(); }} className="text-white/70 hover:text-white hover:bg-white/10">Sign out</Button>
+        <div data-account-menu className="relative p-3 border-t border-[var(--sidebar-border)] bg-black/10">
+          <button
+            onClick={() => setShowAccountMenu((v) => !v)}
+            className="w-full flex items-center gap-2 rounded-xl px-2 py-1.5 -mx-2 hover:bg-white/5 transition-colors text-left"
+          >
+            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] text-xs font-bold shrink-0">{(me?.name ?? "U").slice(0, 2).toUpperCase()}</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium truncate text-white">{me?.name ?? me?.email ?? "User"}</div>
+              <div className="text-xs text-emerald-300 flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Online</div>
+            </div>
+            <span className={`text-white/40 text-xs transition-transform ${showAccountMenu ? "rotate-180" : ""}`}>▾</span>
+          </button>
+          {showAccountMenu && (
+            <div className="absolute bottom-full left-2 right-2 mb-2 rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-card)] overflow-hidden z-20">
+              <button
+                onClick={() => { setShowAccountMenu(false); window.location.href = "/login"; }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] text-left"
+              >
+                <span className="text-xs">⇄</span> Switch account
+              </button>
+              <div className="h-px bg-[var(--border)]" />
+              <button
+                onClick={async () => { await api.authSignOut(); location.reload(); }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-left"
+              >
+                <span className="text-xs">↪</span> Sign out
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

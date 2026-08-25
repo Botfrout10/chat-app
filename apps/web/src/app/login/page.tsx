@@ -1,6 +1,7 @@
 "use client";
-import { useState, Suspense } from "react";
+import { useState, Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Button, Input } from "@/components/ui/button";
@@ -10,6 +11,13 @@ function LoginInner() {
   const params = useSearchParams();
   const initialMode = params.get("mode") === "signup" ? "signup" : "signin";
   const [mode, setMode] = useState<"signin" | "signup">(initialMode as any);
+  const { data: me, isLoading: meLoading } = useQuery({
+    queryKey: ["me"],
+    queryFn: () => api.me().catch(() => null),
+  });
+  useEffect(() => {
+    if (!meLoading && (me as any)?.id) router.replace("/");
+  }, [me, meLoading, router]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
