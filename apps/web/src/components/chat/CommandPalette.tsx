@@ -21,6 +21,7 @@ import { useChatStore } from "@/store/chat";
 import { useUiStore } from "@/store/ui";
 import { useOpenDm, useOpenLlmDm } from "@/hooks/useChatActions";
 import {
+  Command,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -89,7 +90,9 @@ export function CommandPalette() {
 
   return (
     <CommandDialog open={paletteOpen} onOpenChange={(v) => (v ? setPaletteOpen(true) : close())} className="sm:max-w-xl">
-      <CommandInput value={query} onValueChange={setQuery} placeholder="Search channels, people, messages — or run a command…" />
+      {/* cmdk context root — CommandInput/List crash without it */}
+      <Command className="[&_[cmdk-group-heading]]:text-[var(--muted-foreground)]">
+        <CommandInput value={query} onValueChange={setQuery} placeholder="Search channels, people, messages — or run a command…" />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
 
@@ -193,6 +196,7 @@ export function CommandPalette() {
           </CommandItem>
         </CommandGroup>
       </CommandList>
+      </Command>
     </CommandDialog>
   );
 }
