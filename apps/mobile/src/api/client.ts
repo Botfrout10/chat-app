@@ -1,4 +1,5 @@
 import { deleteToken, loadToken } from "@/lib/session";
+import { Platform } from "react-native";
 import type {
   AppNotification,
   Channel,
@@ -12,7 +13,15 @@ import type {
   Workspace,
 } from "@/types";
 
-export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3001";
+/**
+ * Default API base per platform:
+ * - Android emulator: 10.0.2.2 is the host machine's loopback alias
+ * - Physical devices: set EXPO_PUBLIC_API_URL to your machine's LAN IP
+ *   (or run `adb reverse tcp:3001 tcp:3001`)
+ */
+export const API_URL =
+  process.env.EXPO_PUBLIC_API_URL ??
+  (Platform.OS === "android" ? "http://10.0.2.2:3001" : "http://localhost:3001");
 
 class ApiError extends Error {
   status: number;
@@ -36,7 +45,16 @@ async function req<T = unknown>(path: string, opts: RequestInit = {}): Promise<T
     let msg = text || `Request failed ${res.status}`;
     try {
       const parsed = JSON.parse(text);
-      if (parsed?.error) msg = typeof parsed.error === "string" ? parsed.error : JSON.stringify(parsed.error);
+      // API errors use { error }, Better-Auth uses { message, code }
+      const raw = parsed?.error ?? parsed?.message;
+      if (typeof raw === "string") msg = raw;
+      else if (raw) msg = JSON.stringify(raw);
+      if (parsed?.code === "INVALID_EMAIL_OR_PASSWORD" || res.status === 401) {
+        msg = "Invalid email or password";
+      }
+      if (Array.isArray(parsed?.fieldErrors)) {
+        msg = parsed.fieldErrors.map((f: { message?: string }) => f.message ?? "").join(", ") || msg;
+      }
     } catch {
       // plain text body
     }
