@@ -25,7 +25,7 @@ import { useChatStore } from "@/stores/chat";
 import { pickDocument, pickImage, uploadAttachment, type UploadedMeta } from "@/lib/upload";
 import { useTheme } from "@/theme/useTheme";
 import type { MessagesPage, Message } from "@/types";
-import { ulid } from "ulid";
+import { newNonce } from "@/lib/newNonce";
 
 /** Stable empty array — selectors must return cached values or React loops (getSnapshot). */
 const NO_TYPING: string[] = [];
@@ -80,7 +80,7 @@ export default function ChannelView() {
       parentId?: string;
       attachments?: UploadedMeta[];
     }) => {
-      const nonce = ulid();
+      const nonce = newNonce();
       const optimistic: Message = {
         id: `temp-${nonce}`,
         channelId,

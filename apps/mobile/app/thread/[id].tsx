@@ -22,7 +22,7 @@ import { useMe, useReplies } from "@/hooks/queries";
 import { useSession } from "@/lib/session";
 import { useTheme } from "@/theme/useTheme";
 import type { Message } from "@/types";
-import { ulid } from "ulid";
+import { newNonce } from "@/lib/newNonce";
 
 function parseParent(serialized?: string): Message | null {
   if (!serialized) return null;
@@ -75,7 +75,7 @@ export default function ThreadView() {
 
   const sendMutation = useMutation({
     mutationFn: async ({ content }: { content: string }) => {
-      const nonce = ulid();
+      const nonce = newNonce();
       const optimistic: Message = {
         id: `temp-${nonce}`,
         channelId: params.channelId ?? "",

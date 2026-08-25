@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import { api } from "@/api/client";
-import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -25,7 +24,6 @@ const credentialsSchema = z.object({
 
 export default function Login() {
   const t = useTheme();
-  const router = useRouter();
   const { signIn } = useSession();
 
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -54,7 +52,7 @@ export default function Login() {
           : await api.authSignUp(email.trim(), password, name.trim());
       if (!res?.token) throw new Error("No session token in response");
       await signIn(res.token);
-      router.replace("/(tabs)/chats");
+      // no manual navigation here — the auth gate redirects once /me resolves
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
