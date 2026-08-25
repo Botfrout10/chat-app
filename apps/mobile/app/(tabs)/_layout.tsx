@@ -2,12 +2,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 
 import { useNotifications } from "@/hooks/queries";
+import { useRequireSession } from "@/hooks/useRequireSession";
 import { useTheme } from "@/theme/useTheme";
 
 export default function TabsLayout() {
   const t = useTheme();
   const notifQuery = useNotifications();
   const unread = notifQuery.data?.unread ?? 0;
+
+  const blocker = useRequireSession();
+  if (blocker) return blocker;
 
   return (
     <Tabs

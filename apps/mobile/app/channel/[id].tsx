@@ -20,6 +20,7 @@ import { MessageBubble } from "@/components/chat/MessageBubble";
 import { MessageComposer, type ComposerState } from "@/components/chat/MessageComposer";
 import { joinChannelRoom, leaveChannelRoom } from "@/hooks/useChatEvents";
 import { useMe, useMessages } from "@/hooks/queries";
+import { useRequireSession } from "@/hooks/useRequireSession";
 import { useSession } from "@/lib/session";
 import { useChatStore } from "@/stores/chat";
 import { pickDocument, pickImage, uploadAttachment, type UploadedMeta } from "@/lib/upload";
@@ -40,6 +41,9 @@ export default function ChannelView() {
   const { token } = useSession();
   const meQuery = useMe(!!token);
   const me = meQuery.data ?? null;
+
+  const blocker = useRequireSession();
+  if (blocker) return blocker;
 
   const messagesQuery = useMessages(channelId);
   const typingUsers = useChatStore((s) => s.typingUsers[channelId] ?? NO_TYPING);

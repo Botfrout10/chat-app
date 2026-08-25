@@ -1,8 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Redirect, Stack } from "expo-router";
+import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { type ReactNode } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useChatEvents } from "@/hooks/useChatEvents";
@@ -22,33 +20,6 @@ function EventBridge() {
   useChatEvents(!!token);
   return null;
 }
-
-/**
- * Root auth gate: nothing inside the navigator renders (including any
- * dev-restored deep route) until the session token exists.
- */
-function RootGate({ children }: { children: ReactNode }) {
-  const t = useTheme();
-  const { ready, token } = useSession();
-
-  if (!ready) {
-    return (
-      <View style={[styles.splash, { backgroundColor: t.background }]}>
-        <Text style={[styles.logo, { color: t.primary }]}>Pulse</Text>
-        <ActivityIndicator color={t.accent500} />
-      </View>
-    );
-  }
-  if (!token) {
-    return <Redirect href="/(auth)/login" />;
-  }
-  return <>{children}</>;
-}
-
-const styles = StyleSheet.create({
-  splash: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16 },
-  logo: { fontSize: 40, fontWeight: "800" },
-});
 
 function RootStack() {
   const t = useTheme();
@@ -74,9 +45,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <SessionProvider>
           <EventBridge />
-          <RootGate>
-            <RootStack />
-          </RootGate>
+          <RootStack />
         </SessionProvider>
       </QueryClientProvider>
     </SafeAreaProvider>

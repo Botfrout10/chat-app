@@ -19,6 +19,7 @@ import { MessageBubble } from "@/components/chat/MessageBubble";
 import { MessageComposer, type ComposerState } from "@/components/chat/MessageComposer";
 import { joinChannelRoom, leaveChannelRoom } from "@/hooks/useChatEvents";
 import { useMe, useReplies } from "@/hooks/queries";
+import { useRequireSession } from "@/hooks/useRequireSession";
 import { useSession } from "@/lib/session";
 import { useTheme } from "@/theme/useTheme";
 import type { Message } from "@/types";
@@ -51,6 +52,9 @@ export default function ThreadView() {
   const { token } = useSession();
   const meQuery = useMe(!!token);
   const me = meQuery.data ?? null;
+
+  const blocker = useRequireSession();
+  if (blocker) return blocker;
 
   const repliesQuery = useReplies(threadId);
   const [sendError, setSendError] = useState<string | null>(null);
