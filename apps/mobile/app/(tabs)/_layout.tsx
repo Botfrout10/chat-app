@@ -1,10 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 
+import { useNotifications } from "@/hooks/queries";
 import { useTheme } from "@/theme/useTheme";
 
 export default function TabsLayout() {
   const t = useTheme();
+  const notifQuery = useNotifications();
+  const unread = notifQuery.data?.unread ?? 0;
 
   return (
     <Tabs
@@ -41,6 +44,7 @@ export default function TabsLayout() {
         name="activity"
         options={{
           title: "Activity",
+          tabBarBadge: unread > 0 ? (unread > 99 ? "99+" : unread) : undefined,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="notifications-outline" size={size} color={color} />
           ),
