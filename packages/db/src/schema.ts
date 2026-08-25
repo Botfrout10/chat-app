@@ -118,6 +118,17 @@ export const reaction = pgTable("reaction", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.messageId, t.userId, t.emoji] })]);
 
+export const mention = pgTable("mention", {
+  messageId: text("message_id").notNull().references(() => message.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull().references(() => channel.id, { onDelete: "cascade" }),
+  mentionedUserId: text("mentioned_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  senderId: text("sender_id").notNull().references(() => user.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.messageId, t.mentionedUserId] }),
+  index("mention_user_idx").on(t.mentionedUserId, t.createdAt),
+]);
+
 export const invite = pgTable("invite", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id").notNull().references(() => workspace.id, { onDelete: "cascade" }),
@@ -130,8 +141,7 @@ export const invite = pgTable("invite", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("invite_token_idx").on(t.token), index("invite_email_idx").on(t.email)]);
 
-export const notification = pgTable("notification", {
-  id: text("id").primaryKey(),
+export const notification = pgTable("notification", {  id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   workspaceId: text("workspace_id").references(() => workspace.id, { onDelete: "cascade" }),
   channelId: text("channel_id").references(() => channel.id, { onDelete: "cascade" }),
