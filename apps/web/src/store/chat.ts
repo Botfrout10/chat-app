@@ -2,7 +2,7 @@
 import { create } from "zustand";
 
 type Workspace = { id: string; name: string; slug: string };
-type Channel = { id: string; name: string; type: string; workspaceId: string };
+type Channel = { id: string; name: string; type: string; workspaceId: string; dmPeer?: { id: string; name: string } | null };
 
 type State = {
   workspaces: Workspace[];

@@ -1,4 +1,7 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+export const MINIO_URL = process.env.NEXT_PUBLIC_MINIO_URL ?? API_URL.replace(":3001", ":9000");
+export const BUCKET = process.env.NEXT_PUBLIC_S3_BUCKET ?? "chat-attachments";
+export const fileUrl = (key: string) => `${MINIO_URL}/${BUCKET}/${key}`;
 
 async function req(path: string, opts: RequestInit = {}) {
   const hasBody = typeof opts.body !== "undefined" && opts.body !== null;
@@ -35,6 +38,7 @@ export const api = {
   createChannel: (wsId: string, data: any) => req(`/api/workspaces/${wsId}/channels`, { method: "POST", body: JSON.stringify(data) }),
   messages: (channelId: string, q?: string) => req(`/api/channels/${channelId}/messages${q ?? ""}`),
   sendMessage: (channelId: string, data: any) => req(`/api/channels/${channelId}/messages`, { method: "POST", body: JSON.stringify(data) }),
+  createDm: (wsId: string, userId: string) => req(`/api/workspaces/${wsId}/dm`, { method: "POST", body: JSON.stringify({ userId }) }),
   editMessage: (id: string, content: string) => req(`/api/messages/${id}`, { method: "PATCH", body: JSON.stringify({ content }) }),
   deleteMessage: (id: string) => req(`/api/messages/${id}`, { method: "DELETE" }),
   react: (id: string, emoji: string) => req(`/api/messages/${id}/reactions`, { method: "POST", body: JSON.stringify({ emoji }) }),

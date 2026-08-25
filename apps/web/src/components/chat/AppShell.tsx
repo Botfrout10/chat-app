@@ -121,6 +121,27 @@ export function AppShell() {
     }
   }
 
+  // members for DM list + openDm
+  const { data: wsMembers } = useQuery({
+    queryKey: ["members", activeWorkspaceId],
+    queryFn: () => api.members(activeWorkspaceId!).catch(() => []),
+    enabled: !!activeWorkspaceId && !!me?.id,
+  });
+  const dmCandidates = ((wsMembers as any) ?? []).filter((m: any) => m.id !== me?.id);
+  const [dmError, setDmError] = useState<string | null>(null);
+  async function openDm(userId: string) {
+    setDmError(null);
+    if (!activeWorkspaceId) return;
+    try {
+      const ch: any = await api.createDm(activeWorkspaceId, userId);
+      const chs = await api.channels(activeWorkspaceId);
+      setChannels(chs as any);
+      setActiveChannel(ch.id);
+    } catch (e: any) {
+      setDmError((e.message ?? "Failed to open DM").slice(0, 160));
+    }
+  }
+
   async function doSearch() {
     if (!searchQ.trim()) return setSearchRes([]);
     const res = await api.search(searchQ.trim()).catch(() => []);
@@ -290,9 +311,9 @@ export function AppShell() {
                   onClick={() => setActiveChannel(c.id)}
                   className={`w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-2 border ${activeChannelId === c.id ? "bg-[var(--primary)] text-[var(--primary-foreground)] border-transparent shadow-[var(--shadow-soft)]" : "text-white/60 border-transparent hover:bg-white/5 hover:text-white"}`}
                 >
-                  <span className="text-xs opacity-70">#</span>
-                  <span className="truncate">{c.name}</span>
-                  <span className="ml-auto text-xs opacity-50">{c.type}</span>
+                  <span className="text-xs opacity-70">{c.type === "dm" ? "@" : "#"}</span>
+                  <span className="truncate">{c.type === "dm" ? c.dmPeer?.name ?? "direct message" : c.name}</span>
+                  {c.type !== "dm" && <span className="ml-auto text-xs opacity-50">{c.type}</span>}
                 </button>
               ))}
               {channels.length === 0 && <div className="text-xs text-white/40">No channels yet — try “general”.</div>}
@@ -308,8 +329,22 @@ export function AppShell() {
           </div>
 
           <div>
-            <div className="text-xs font-semibold tracking-widest text-white/40 mb-2">DIRECT</div>
-            <div className="space-y-1 opacity-60 text-xs text-white/40">DMs: use “dm” channel type via API — UI coming next.</div>
+            <div className="text-xs font-semibold tracking-widest text-white/40 mb-2">DIRECT MESSAGES</div>
+            {dmCandidates.length === 0 && <div className="text-xs text-white/40">No other members yet — add someone with ＋.</div>}
+            <div className="space-y-1">
+              {dmCandidates.map((m: any) => (
+                <button
+                  key={m.id}
+                  onClick={() => openDm(m.id)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-white/60 hover:bg-white/5 hover:text-white"
+                >
+                  <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] text-[10px] font-bold shrink-0">{String(m.name).slice(0, 2).toUpperCase()}</span>
+                  <span className="truncate">{m.name}</span>
+                  <span className={`ml-auto h-2 w-2 rounded-full shrink-0 ${presence[m.id] === "online" ? "bg-emerald-500" : "bg-white/15"}`} />
+                </button>
+              ))}
+              {dmError && <div className="text-xs text-red-200 bg-red-950/30 border border-red-800/50 rounded-lg p-2">{dmError}</div>}
+            </div>
           </div>
         </div>
 
@@ -325,7 +360,14 @@ export function AppShell() {
 
       {/* main */}
       <div className="flex-1 flex flex-col min-w-0 bg-[var(--background)]">
-        {activeChannelId ? <ChannelView channelId={activeChannelId} /> : <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Select a channel — or create one above.</div>}
+        {activeChannelId ? (
+          <ChannelView
+            key={activeChannelId}
+            channelId={activeChannelId}
+            workspaceId={activeWorkspaceId ?? undefined}
+            channel={channels.find((c) => c.id === activeChannelId)}
+          />
+        ) : <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Select a channel — or create one above.</div>}
       </div>
     </div>
   );

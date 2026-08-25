@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { RichText, AttachmentPreview } from "./RichText";
 
 type Msg = {
   id: string;
@@ -12,10 +13,10 @@ type Msg = {
   deletedAt?: string | null;
   parentId?: string | null;
   reactions?: { emoji: string; userId: string }[];
-  attachments?: { key: string; filename: string }[];
+  attachments?: { key: string; filename: string; mime?: string; size?: number }[];
 };
 
-export function MessageItem({ msg, onReply, isOwn }: { msg: Msg; onReply?: (id: string) => void; isOwn?: boolean }) {
+export function MessageItem({ msg, onReply, isOwn, memberTokens, meName }: { msg: Msg; onReply?: (id: string) => void; isOwn?: boolean; memberTokens?: Set<string>; meName?: string }) {
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
   const [showActions, setShowActions] = useState(false);
@@ -70,13 +71,13 @@ export function MessageItem({ msg, onReply, isOwn }: { msg: Msg; onReply?: (id: 
             <button onClick={() => setEditing(false)} className="text-xs border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] px-3 py-1 rounded-[var(--radius-sm)]">Cancel</button>
           </div>
         ) : (
-          <div className="text-sm text-[var(--foreground)]/90 whitespace-pre-wrap break-words mt-0.5 leading-relaxed">{msg.content}</div>
+          <RichText content={msg.content} memberTokens={memberTokens ?? new Set()} meName={meName} />
         )}
 
         {msg.attachments && msg.attachments.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {msg.attachments.map((a) => (
-              <a key={a.key} href={`${process.env.NEXT_PUBLIC_API_URL?.replace("3001", "9000") ?? ""}/chat-attachments/${a.key}`} target="_blank" className="text-xs underline text-[var(--primary)] hover:text-[var(--primary-hover)]">{a.filename}</a>
+              <AttachmentPreview key={a.key} att={a} />
             ))}
           </div>
         )}

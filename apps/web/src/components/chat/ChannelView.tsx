@@ -1,19 +1,19 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { getSocket, connectSocket } from "@/lib/socket";
 import { MessageItem } from "./MessageItem";
 import { Button } from "@/components/ui/button";
 
-type Props = { channelId: string; workspaceId?: string };
+type Props = { channelId: string; workspaceId?: string; channel?: any };
 
-export function ChannelView({ channelId }: Props) {
+export function ChannelView({ channelId, workspaceId, channel }: Props) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [attachmentKeys, setAttachmentKeys] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<{ key: string; filename: string; mime: string; size: number; url: string }[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -106,6 +106,47 @@ export function ChannelView({ channelId }: Props) {
     typingTimeout = setTimeout(() => s.emit("typing:stop", { channelId }), 1500);
   }
 
+  // members for mention autocomplete + highlight
+  const { data: members } = useQuery({
+    queryKey: ["members", workspaceId],
+    queryFn: () => api.members(workspaceId!).catch(() => []),
+    enabled: !!workspaceId,
+  });
+  const memberTokens = useMemo(() => {
+    const s = new Set<string>();
+    for (const m of (members as any) ?? []) {
+      if (m?.name) s.add(String(m.name).toLowerCase());
+      const local = String(m?.email ?? "").split("@")[0]?.toLowerCase();
+      if (local) s.add(local);
+    }
+    return s;
+  }, [members]);
+
+  // @mention autocomplete state
+  const [ac, setAc] = useState<{ open: boolean; q: string }>({ open: false, q: "" });
+  const acMatches = useMemo(() => {
+    if (!ac.open) return [];
+    const q = ac.q.toLowerCase();
+    return ((members as any) ?? []).filter((m: any) => {
+      const n = String(m.name ?? "").toLowerCase();
+      const e = String(m.email ?? "").toLowerCase();
+      return n.startsWith(q) || e.startsWith(q);
+    }).slice(0, 6);
+  }, [ac, members]);
+
+  const AC_RE = /@([\p{L}\p{N}_.-]*)$/u;
+  function handleInput(v: string) {
+    setInput(v);
+    const m = AC_RE.exec(v);
+    if (m && workspaceId) setAc({ open: true, q: m[1] });
+    else setAc({ open: false, q: "" });
+  }
+
+  function pickMention(name: string) {
+    setInput((prev) => prev.replace(/@([\p{L}\p{N}_.-]*)$/u, `@${name} `));
+    setAc({ open: false, q: "" });
+  }
+
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -113,7 +154,7 @@ export function ChannelView({ channelId }: Props) {
     try {
       const presigned: any = await api.presign({ filename: file.name, mime: file.type || "application/octet-stream", size: file.size });
       await fetch(presigned.url, { method: "PUT", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
-      setAttachmentKeys((k) => [...k, presigned.key]);
+      setAttachments((k) => [...k, { key: presigned.key, filename: presigned.filename, mime: presigned.mime, size: presigned.size, url: presigned.url }]);
     } catch (err) {
       alert("Upload failed: " + (err as Error).message);
     } finally {
@@ -123,16 +164,17 @@ export function ChannelView({ channelId }: Props) {
   }
 
   async function send() {
-    if (!input.trim() && attachmentKeys.length === 0) return;
-    const content = input.trim() || (attachmentKeys.length ? "📎 Attachment" : "");
+    if (!input.trim() && attachments.length === 0) return;
+    const content = input.trim() || "📎 Attachment";
     const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const parentAtSend = replyTo;
     setInput("");
     setReplyTo(null);
-    const keys = [...attachmentKeys];
-    setAttachmentKeys([]);
+    setAc({ open: false, q: "" });
+    const atts = attachments.map(({ key, filename, mime, size }) => ({ key, filename, mime, size }));
+    setAttachments([]);
     try {
-      const saved: any = await api.sendMessage(channelId, { content, parentId: parentAtSend, attachmentKeys: keys, nonce });
+      const saved: any = await api.sendMessage(channelId, { content, parentId: parentAtSend, attachments: atts, nonce });
       // show instantly — don't wait for the socket echo
       qc.setQueryData(["messages", channelId], (old: any) => {
         if (!old || !saved?.id) return old;
@@ -150,12 +192,15 @@ export function ChannelView({ channelId }: Props) {
 
   if (isLoading) return <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading messages…</div>;
 
+  const isDm = channel?.type === "dm";
+  const title = isDm ? `@${channel?.dmPeer?.name ?? "direct message"}` : `#${channel?.name ?? channelId.slice(0, 8)}`;
+
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-[var(--background)]">
       <div className="h-14 border-b border-[var(--border)] flex items-center px-4 justify-between shrink-0 bg-[var(--card)]">
         <div className="flex items-center gap-2">
-          <span className="h-6 w-6 rounded-lg bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center text-xs font-bold text-[var(--muted-foreground)]">#</span>
-          <span className="text-sm font-semibold text-[var(--foreground)]">{channelId.slice(0, 8)}</span>
+          <span className="h-6 w-6 rounded-lg bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center text-xs font-bold text-[var(--muted-foreground)]">{isDm ? "@" : "#"}</span>
+          <span className="text-sm font-semibold text-[var(--foreground)]">{title}</span>
           <span className="text-xs text-[var(--muted-foreground)]">{allMessages.length} messages</span>
         </div>
         <div className="flex items-center gap-2">
@@ -176,15 +221,36 @@ export function ChannelView({ channelId }: Props) {
           </div>
         ) : (
           allMessages.map((m: any) => (
-            <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={me?.id === m.senderId} />
+            <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={me?.id === m.senderId} memberTokens={memberTokens} meName={me?.name} />
           ))
         )}
         {typing.length > 0 && <div className="px-4 py-1 text-xs text-[var(--muted-foreground)] italic bg-[var(--accent-50)] dark:bg-white/5 border-y border-[var(--border)]">{typing.length === 1 ? "Someone is typing…" : `${typing.length} people are typing…`}</div>}
       </div>
 
-      <div className="border-t border-[var(--border)] p-3 bg-[var(--card)]">
+      <div className="border-t border-[var(--border)] p-3 bg-[var(--card)] relative">
         {replyTo && <div className="mb-2 text-xs text-[var(--primary)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2">↩ Replying to {replyTo.slice(0, 8)} <button onClick={() => setReplyTo(null)} className="ml-2 underline">cancel</button></div>}
-        {attachmentKeys.length > 0 && <div className="mb-2 text-xs text-[var(--muted-foreground)] bg-[var(--muted)] border border-[var(--border)] rounded-lg px-3 py-2">{attachmentKeys.length} file(s) ready to send <button onClick={() => setAttachmentKeys([])} className="underline ml-2">clear</button></div>}
+        {attachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {attachments.map((a) => (
+              <span key={a.key} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-1 text-xs text-[var(--foreground)]">
+                📄 {a.filename}
+                <button onClick={() => setAttachments((k) => k.filter((x) => x.key !== a.key))} className="ml-1 text-[var(--muted-foreground)] hover:text-[var(--destructive)]">×</button>
+              </span>
+            ))}
+          </div>
+        )}
+        {ac.open && acMatches.length > 0 && (
+          <div className="absolute bottom-full left-3 right-3 mb-2 rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-card)] overflow-hidden z-10">
+            <div className="px-3 py-1.5 text-xs font-semibold tracking-widest text-[var(--muted-foreground)] border-b border-[var(--border)]">MEMBERS</div>
+            {acMatches.map((m: any) => (
+              <button key={m.id} onMouseDown={(e) => { e.preventDefault(); pickMention(m.name); }} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--muted)] text-left">
+                <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] text-[10px] font-bold">{String(m.name).slice(0, 2).toUpperCase()}</span>
+                <span className="text-sm text-[var(--foreground)]">{m.name}</span>
+                <span className="text-xs text-[var(--muted-foreground)] ml-auto truncate max-w-[160px]">{m.email}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2 rounded-[var(--radius)] border border-[var(--input-border)] bg-[var(--muted)] p-2">
           <button onClick={() => fileRef.current?.click()} className="h-8 w-8 rounded-[var(--radius-sm)] bg-[var(--card)] border border-[var(--border)] flex items-center justify-center text-sm hover:bg-[var(--background)] text-[var(--foreground)]">
             📎
@@ -192,22 +258,28 @@ export function ChannelView({ channelId }: Props) {
           <input ref={fileRef} type="file" className="hidden" onChange={handleFile} />
           <textarea
             value={input}
-            onChange={(e) => handleTyping(e.target.value)}
+            onChange={(e) => handleInput(e.target.value)}
             onKeyDown={(e) => {
+              if (ac.open && acMatches.length > 0 && (e.key === "Enter" || e.key === "Tab")) {
+                e.preventDefault();
+                pickMention(acMatches[0].name);
+                return;
+              }
+              if (e.key === "Escape") setAc({ open: false, q: "" });
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 send();
               }
             }}
-            placeholder="Message… (Enter to send, Shift+Enter for new line)"
+            placeholder="Message… (@ to mention, Enter to send, Shift+Enter for new line)"
             rows={1}
             className="flex-1 bg-transparent outline-none text-sm resize-none max-h-24 py-2 placeholder:text-[var(--muted-foreground)]/60 text-[var(--foreground)]"
           />
-          <Button onClick={send} disabled={uploading || (!input.trim() && attachmentKeys.length === 0)} className="rounded-[var(--radius-sm)]">
+          <Button onClick={send} disabled={uploading || (!input.trim() && attachments.length === 0)} className="rounded-[var(--radius-sm)]">
             {uploading ? "…" : "Send"}
           </Button>
         </div>
-        <div className="mt-1 text-xs text-[var(--muted-foreground)] hidden sm:block">Markdown • @mention • Enter to send</div>
+        <div className="mt-1 text-xs text-[var(--muted-foreground)] hidden sm:block">Markdown • @mention • images preview inline</div>
       </div>
     </div>
   );
