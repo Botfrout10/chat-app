@@ -78,7 +78,7 @@ Chat with LLMs; delegate real work to external agents. **Connect-only**: the app
 - [x] API: register/update/delete connection → validate by fetching provider `/v1/models` and matching the model name; store discovered capabilities (`POST /api/llm/connections`, `PATCH`/`DELETE /api/llm/connections/:id`, `POST .../:id/verify`, `GET .../:id/status`; baseUrl normalized to versioned `/v1`, model existence checked with "Available: …" error)
 - [x] API: completion proxy with **streaming relay** into Socket.IO room `channel:<id>` (`lib/llm.ts`: SSE parse of OpenAI-compatible `/chat/completions`, 120s timeout, deltas via `llm:delta`/`llm:typing`/`llm:error` events; one generation at a time per connection)
 - [x] Per-connection DM chat (`POST /api/llm/connections/:id/dm` find-or-create; each connection gets a synthetic bot user `llm+<id>@llm.local`, so replies are normal `message` rows with sender joins working)
-- [~] Mention-triggered replies — **core paths live & tested**: DM peer auto-reply + `@mentionName` match against the sender's own connections (hooked into message-send, fire-and-forget). Remaining: mobile rendering of streaming deltas
+- [~] Mention-triggered replies — **core paths live & tested**: DM peer auto-reply + `@mentionName` match against the sender's own connections (hooked into message-send, fire-and-forget). Remaining: none blocking — web + mobile both render streams
   - Extend the existing member-mention matching with a second pass over the **sender's own** `llm_connection` rows (name/label/alias) — no pipeline fork; mention rows get a `type: user | llm` discriminator
   - `llm` mentions trigger a streaming completion job instead of a notification; notifications worker skips email for them (decide during build whether an activity/unread signal is still emitted)
   - Edge cases: multiple models mentioned → one reply each, serialized per connection · abort on message delete/edit mid-generation · generation timeout · typing indicator while streaming · per-user completion rate limit
@@ -86,7 +86,8 @@ Chat with LLMs; delegate real work to external agents. **Connect-only**: the app
 - [x] Web: connect-model flow (URL + model name + live validation), model status page, streaming message rendering
   - Sidebar **AI MODELS** section (status dot per connection, click → open model DM); `LlmManager` modal (connect form + expandable status detail with provider reachability & model list, re-check/remove); streaming bubble (`llm:typing` → `llm:delta` accumulation → cleared on final `message:new` carrying `llmConnectionId`); connected models merged into @autocomplete
   - Remaining (deferred): tool-call/vision request UI hooks (needs provider-side tools first)
-- [ ] Mobile: read + send in AI chats (parity slice after web stabilizes)
+- [x] Mobile: read + send in AI chats (parity with web)
+  - Chats tab **AI MODELS** section (status dot per connection, tap → open/refresh model DM); ChannelView renders an LLM streaming indicator (thinking → writing with live delta text) from `llm:typing`/`llm:delta`, cleared on final `message:new` carrying `llmConnectionId` (handled in `useChatEvents`)
 
 ### Phase B — Agents (real work)
 
