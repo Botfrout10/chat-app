@@ -15,6 +15,13 @@
       "when": 1787655517566,
       "tag": "0001_brief_skrulls",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787665944787,
+      "tag": "0002_crazy_scalphunter",
+      "breakpoints": true
     }
   ]
 }

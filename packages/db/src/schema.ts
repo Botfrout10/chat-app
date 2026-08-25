@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, varchar, index, unique, primaryKey, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, varchar, index, unique, primaryKey, integer, boolean, jsonb } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 // Better-auth tables (compatible with better-auth drizzle adapter)
@@ -152,6 +152,25 @@ export const notification = pgTable("notification", {  id: text("id").primaryKey
   read: boolean("read").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("notification_user_idx").on(t.userId, t.createdAt)]);
+
+// AI integrations (Phase A — personal LLM connections)
+export const llmConnection = pgTable("llm_connection", {
+  id: text("id").primaryKey(), // ulid
+  ownerId: text("owner_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  label: varchar("label", { length: 80 }).notNull(),
+  mentionName: varchar("mention_name", { length: 80 }).notNull(), // @token matched in message content
+  provider: varchar("provider", { length: 40 }).notNull().default("openai-compatible").$type<"openai-compatible" | "anthropic">(),
+  baseUrl: text("base_url").notNull(), // OpenAI-compatible base incl. version path, e.g. http://localhost:1234/v1
+  modelId: text("model_id").notNull(), // model name as reported by the provider
+  status: varchar("status", { length: 20 }).notNull().default("unverified").$type<"unverified" | "ok" | "error">(),
+  lastError: text("last_error"),
+  capabilities: jsonb("capabilities"), // provider-reported extras (context length, tools, vision…)
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("llm_owner_mention_unique").on(t.ownerId, t.mentionName),
+  index("llm_owner_idx").on(t.ownerId),
+]);
 
 // Relations
 export const workspaceRelations = relations(workspace, ({ many, one }) => ({
