@@ -101,15 +101,27 @@ export function useChatEvents(enabled: boolean) {
         break;
       case "llm:typing": {
         const evt = payload as { channelId: string; connectionId: string; isTyping: boolean };
-        if (evt.isTyping) setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: "" });
+        if (evt.isTyping) setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: "", thinking: "" });
         else clearLlmStream(evt.channelId, evt.connectionId);
+        break;
+      }
+      case "llm:thinking": {
+        const evt = payload as { channelId: string; connectionId: string; delta: string };
+        const cur = useChatStore.getState().llmStreams[evt.channelId];
+        if (cur?.connectionId === evt.connectionId) {
+          setLlmStream(evt.channelId, {
+            connectionId: evt.connectionId,
+            text: cur.text,
+            thinking: cur.thinking + evt.delta,
+          });
+        }
         break;
       }
       case "llm:delta": {
         const evt = payload as { channelId: string; connectionId: string; delta: string };
         const cur = useChatStore.getState().llmStreams[evt.channelId];
         if (cur?.connectionId === evt.connectionId) {
-          setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: cur.text + evt.delta });
+          setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: cur.text + evt.delta, thinking: cur.thinking });
         }
         break;
       }

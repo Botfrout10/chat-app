@@ -12,14 +12,14 @@ type State = {
   /** userId -> status ("online" | "offline" | "away") */
   presence: Record<string, string>;
   /** channelId -> in-flight LLM generation (typing indicator + accumulated deltas) */
-  llmStreams: Record<string, { connectionId: string; text: string }>;
+  llmStreams: Record<string, { connectionId: string; text: string; thinking: string }>;
   setWorkspaces: (w: Workspace[]) => void;
   setActiveWorkspace: (id: string | null) => void;
   setChannels: (c: Channel[]) => void;
   setActiveChannel: (id: string | null) => void;
   setTyping: (channelId: string, userIds: string[]) => void;
   setPresence: (userId: string, status: string) => void;
-  setLlmStream: (channelId: string, stream: { connectionId: string; text: string } | null) => void;
+  setLlmStream: (channelId: string, stream: { connectionId: string; text: string; thinking: string } | null) => void;
   reset: () => void;
 };
 

@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -61,6 +62,7 @@ export default function ChannelView() {
   const [pending, setPending] = useState<UploadedMeta[]>([]);
   const [uploading, setUploading] = useState(false);
   const [attachSheet, setAttachSheet] = useState(false);
+  const [showStreamThinking, setShowStreamThinking] = useState(false);
 
   // join/leave the socket room for live updates
   useEffect(() => {
@@ -313,6 +315,27 @@ export default function ChannelView() {
             <Text style={{ color: t.mutedForeground, fontSize: 12, fontWeight: "600" }}>
               ✦ {llmLabel ?? "AI"} {llmStream.text ? "is writing…" : "is thinking…"}
             </Text>
+            {!!llmStream.thinking && (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setShowStreamThinking((v) => !v)}
+                hitSlop={6}
+                style={{ paddingVertical: 2 }}
+              >
+                <Text style={{ color: t.mutedForeground, fontSize: 11, fontWeight: "600" }}>
+                  {showStreamThinking ? "▾" : "▸"} 🧠 Thinking
+                </Text>
+              </Pressable>
+            )}
+            {showStreamThinking && !!llmStream.thinking && (
+              <View style={{ backgroundColor: t.muted, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, marginTop: 2, maxHeight: 160 }}>
+                <ScrollView>
+                  <Text style={{ color: t.mutedForeground, fontSize: 12, lineHeight: 17 }} selectable>
+                    {llmStream.thinking}
+                  </Text>
+                </ScrollView>
+              </View>
+            )}
             {!!llmStream.text && (
               <Text style={{ color: t.foreground, fontSize: 13, marginTop: 2 }} numberOfLines={6}>
                 {llmStream.text}

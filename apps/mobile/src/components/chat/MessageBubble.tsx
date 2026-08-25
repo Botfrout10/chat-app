@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Attachments } from "@/components/chat/Attachments";
+import { MessageMarkdown } from "@/components/chat/MessageMarkdown";
 import { useTheme } from "@/theme/useTheme";
 import type { Message, User } from "@/types";
 
@@ -24,6 +26,7 @@ export function MessageBubble({
 }) {
   const t = useTheme();
   const own = me?.id === message.senderId;
+  const [showThinking, setShowThinking] = useState(false);
 
   if (message.deletedAt) {
     return (
@@ -54,10 +57,29 @@ export function MessageBubble({
             </Text>
           </View>
         )}
-        <Text style={[styles.content, { color: own ? t.primaryForeground : t.foreground }]}>
-          {message.content}
-          {message.editedAt ? <Text style={styles.edited}> (edited)</Text> : null}
-        </Text>
+        {!!message.reasoning && (
+          <View style={[styles.thinking, own && { backgroundColor: "rgba(255,255,255,0.12)" }]}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setShowThinking((v) => !v)}
+              style={styles.thinkingHeader}
+              hitSlop={6}
+            >
+              <Text style={[styles.thinkingLabel, { color: own ? t.accent300 : t.mutedForeground }]}>
+                {showThinking ? "▾" : "▸"} 🧠 Thinking
+              </Text>
+            </Pressable>
+            {showThinking && (
+              <Text style={[styles.thinkingBody, { color: own ? t.accent50 : t.mutedForeground }]} selectable>
+                {message.reasoning}
+              </Text>
+            )}
+          </View>
+        )}
+        <MessageMarkdown content={message.content} own={own} />
+        {message.editedAt ? (
+          <Text style={[styles.edited, { color: own ? t.accent100 : t.mutedForeground, alignSelf: "flex-end" }]}> (edited)</Text>
+        ) : null}
 
         <Attachments attachments={message.attachments ?? []} />
 
@@ -126,6 +148,16 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   content: { fontSize: 15, lineHeight: 21 },
+  thinking: {
+    borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.04)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
+  thinkingHeader: { paddingVertical: 2 },
+  thinkingLabel: { fontSize: 11, fontWeight: "600" },
+  thinkingBody: { fontSize: 12, lineHeight: 17, marginTop: 4 },
   edited: { fontSize: 11, opacity: 0.7 },
   reactions: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 },
   chip: {

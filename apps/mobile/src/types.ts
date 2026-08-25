@@ -55,6 +55,8 @@ export type Message = {
   senderId: string;
   parentId: string | null;
   content: string;
+  /** AI chain-of-thought output (reasoning models), collapsible in the UI */
+  reasoning?: string | null;
   nonce: string | null;
   createdAt: string;
   editedAt: string | null;
