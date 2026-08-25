@@ -1,6 +1,7 @@
 "use client";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { FileText } from "lucide-react";
 import { useLightbox } from "@/components/ui/ImageLightbox";
 
 const SPLIT = /(@[\p{L}\p{N}_.-]+)/gu;
@@ -79,7 +80,7 @@ export function AttachmentPreview({ att }: { att: { key: string; filename: strin
   }
   return (
     <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 hover:bg-[var(--muted)] w-fit">
-      <span className="text-lg">📄</span>
+      <FileText className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
       <span className="min-w-0">
         <span className="block text-xs font-medium text-[var(--foreground)] truncate max-w-[220px]">{att.filename}</span>
         <span className="block text-xs text-[var(--muted-foreground)]">{fmtSize(att.size)}</span>

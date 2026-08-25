@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { Check } from "lucide-react";
 import { api } from "@/lib/api";
 import { AppShell } from "@/components/chat/AppShell";
 
@@ -69,10 +70,10 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-xl bg-white/10 border border-white/10 p-3">✓ Cursor pagination<br />ULID ordering</div>
-                  <div className="rounded-xl bg-white/10 border border-white/10 p-3">✓ Redis pub/sub<br />3-server fanout</div>
-                  <div className="rounded-xl bg-white/10 border border-white/10 p-3">✓ MinIO presigned<br />attachments</div>
-                  <div className="rounded-xl bg-white/10 border border-white/10 p-3">✓ Presence + typing<br />read receipts</div>
+                  <div className="rounded-xl bg-white/10 border border-white/10 p-3 inline-flex"><Check className="mr-1.5 mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-300" /><span>Cursor pagination<br />ULID ordering</span></div>
+                  <div className="rounded-xl bg-white/10 border border-white/10 p-3 inline-flex"><Check className="mr-1.5 mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-300" /><span>Redis pub/sub<br />3-server fanout</span></div>
+                  <div className="rounded-xl bg-white/10 border border-white/10 p-3 inline-flex"><Check className="mr-1.5 mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-300" /><span>MinIO presigned<br />attachments</span></div>
+                  <div className="rounded-xl bg-white/10 border border-white/10 p-3 inline-flex"><Check className="mr-1.5 mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-300" /><span>Presence + typing<br />read receipts</span></div>
                 </div>
               </div>
 

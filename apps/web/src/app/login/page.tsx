@@ -4,7 +4,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { Button, Input } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Sparkles } from "lucide-react";
 
 function LoginInner() {
   const router = useRouter();
@@ -56,8 +58,8 @@ function LoginInner() {
       <div className="flex-1 flex items-center justify-center p-4">
         <form onSubmit={submit} className="w-full max-w-sm rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)] p-6 shadow-[var(--shadow-card)] space-y-4">
           <div className="text-center">
-            <div className="mx-auto h-12 w-12 rounded-2xl bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] font-bold">
-              {mode === "signup" ? "✦" : "◈"}
+            <div className="mx-auto h-12 w-12 rounded-2xl bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)]">
+              <Sparkles className="h-5 w-5" />
             </div>
             <h1 className="mt-3 text-lg font-semibold text-[var(--foreground)]">{mode === "signup" ? "Create account" : "Welcome back"}</h1>
             <p className="text-sm text-[var(--muted-foreground)]">{mode === "signup" ? "Start with an account, then create a workspace." : "Sign in to your workspace."}</p>

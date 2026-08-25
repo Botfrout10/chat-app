@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { getSocket, connectSocket } from "@/lib/socket";
 import { MessageItem } from "./MessageItem";
 import { Button } from "@/components/ui/button";
+import { AtSign, BrainCircuit, CornerUpLeft, FileText, Hash, MessagesSquare, Paperclip, Sparkles, X } from "lucide-react";
 
 type Props = { channelId: string; workspaceId?: string; channel?: any };
 
@@ -326,7 +327,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     <div className="flex h-full min-h-0 flex-col bg-[var(--background)]">
       <div className="h-14 border-b border-[var(--border)] flex items-center px-4 justify-between shrink-0 bg-[var(--card)]">
         <div className="flex items-center gap-2">
-          <span className="h-6 w-6 rounded-lg bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center text-xs font-bold text-[var(--muted-foreground)]">{isDm ? "@" : "#"}</span>
+          <span className="h-6 w-6 rounded-lg bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)]">{isDm ? <AtSign className="h-3.5 w-3.5" /> : <Hash className="h-3.5 w-3.5" />}</span>
           <span className="text-sm font-semibold text-[var(--foreground)]">{title}</span>
           <span className="text-xs text-[var(--muted-foreground)]">{allMessages.length} messages</span>
         </div>
@@ -343,7 +344,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         <div className="flex-1 py-2">
         {allMessages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
-            <div className="h-12 w-12 rounded-2xl bg-[var(--accent-100)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] flex items-center justify-center text-xl">💬</div>
+            <div className="h-12 w-12 rounded-2xl bg-[var(--accent-100)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] flex items-center justify-center"><MessagesSquare className="h-6 w-6 text-[var(--primary)]" /></div>
             <p className="mt-3 text-sm font-medium text-[var(--foreground)]">No messages yet</p>
             <p className="text-xs text-[var(--muted-foreground)]">Be the first to break the ice</p>
           </div>
@@ -354,14 +355,14 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         )}
         {stream && (
           <div className="px-4 py-2 flex items-start gap-3 hover:bg-[var(--muted)]/60">
-            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)] text-xs font-bold shrink-0">✦</span>
+            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)] shrink-0"><Sparkles className="h-4 w-4" /></span>
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold text-[var(--foreground)]">
                 {connLabel.get(stream.connectionId) ?? "AI"} <span className="font-normal text-[var(--muted-foreground)]">{stream.text ? "is writing…" : "is thinking…"}</span>
               </div>
               {!!stream.thinking && (
                 <details className="mt-1" open={!stream.text}>
-                  <summary className="cursor-pointer select-none text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]">🧠 Thinking</summary>
+                  <summary className="cursor-pointer select-none text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] inline-flex items-center gap-1"><BrainCircuit className="h-3.5 w-3.5" /> Thinking</summary>
                   <div className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words border-l-2 border-[var(--border)] pl-3 text-xs text-[var(--muted-foreground)]">
                     {stream.thinking}
                   </div>
@@ -381,13 +382,13 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       </div>
 
       <div className="border-t border-[var(--border)] p-3 bg-[var(--card)] relative shrink-0">
-        {replyTo && <div className="mb-2 text-xs text-[var(--primary)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2">↩ Replying to {replyTo.slice(0, 8)} <button onClick={() => setReplyTo(null)} className="ml-2 underline">cancel</button></div>}
+        {replyTo && <div className="mb-2 text-xs text-[var(--primary)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2 flex items-center gap-1"><CornerUpLeft className="h-3 w-3" /> Replying to {replyTo.slice(0, 8)} <button onClick={() => setReplyTo(null)} className="ml-2 underline">cancel</button></div>}
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {attachments.map((a) => (
               <span key={a.key} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-1 text-xs text-[var(--foreground)]">
-                📄 {a.filename}
-                <button onClick={() => setAttachments((k) => k.filter((x) => x.key !== a.key))} className="ml-1 text-[var(--muted-foreground)] hover:text-[var(--destructive)]">×</button>
+                <FileText className="h-3.5 w-3.5" /> {a.filename}
+                <button title="Remove attachment" onClick={() => setAttachments((k) => k.filter((x) => x.key !== a.key))} className="ml-1 text-[var(--muted-foreground)] hover:text-[var(--destructive)]"><X className="h-3.5 w-3.5" /></button>
               </span>
             ))}
           </div>
@@ -398,7 +399,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
             {acMatches.map((m: any) => (
               <button key={m.id} onMouseDown={(e) => { e.preventDefault(); pickMention(m); }} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--muted)] text-left">
                 {m.isModel ? (
-                  <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)] text-[10px] font-bold">✦</span>
+                  <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)]"><Sparkles className="h-3 w-3" /></span>
                 ) : (
                   <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] text-[10px] font-bold">{String(m.name).slice(0, 2).toUpperCase()}</span>
                 )}
@@ -409,8 +410,8 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           </div>
         )}
         <div className="flex items-end gap-2 rounded-[var(--radius)] border border-[var(--input-border)] bg-[var(--muted)] p-2">
-          <button onClick={() => fileRef.current?.click()} className="h-8 w-8 rounded-[var(--radius-sm)] bg-[var(--card)] border border-[var(--border)] flex items-center justify-center text-sm hover:bg-[var(--background)] text-[var(--foreground)]">
-            📎
+          <button title="Attach file" onClick={() => fileRef.current?.click()} className="h-8 w-8 rounded-[var(--radius-sm)] bg-[var(--card)] border border-[var(--border)] flex items-center justify-center hover:bg-[var(--background)] text-[var(--foreground)]">
+            <Paperclip className="h-4 w-4" />
           </button>
           <input ref={fileRef} type="file" className="hidden" onChange={handleFile} />
           <textarea

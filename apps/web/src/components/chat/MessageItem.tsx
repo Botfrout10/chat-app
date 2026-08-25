@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { RichText, AttachmentPreview } from "./RichText";
+import { BrainCircuit, CornerUpLeft, Pencil, Trash2 } from "lucide-react";
 
 type Msg = {
   id: string;
@@ -67,8 +68,8 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
 
         {msg.reasoning ? (
           <details className="mt-1 mb-1">
-            <summary className="cursor-pointer select-none text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
-              🧠 Thinking
+            <summary className="cursor-pointer select-none text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] inline-flex items-center gap-1">
+              <BrainCircuit className="h-3.5 w-3.5" /> Thinking
             </summary>
             <div className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words border-l-2 border-[var(--border)] pl-3 text-xs text-[var(--muted-foreground)]">
               {msg.reasoning}
@@ -125,11 +126,11 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
           <button onClick={() => react("👍")} className="h-6 w-6 rounded-full hover:bg-[var(--muted)] text-xs">👍</button>
           <button onClick={() => react("❤️")} className="h-6 w-6 rounded-full hover:bg-[var(--muted)] text-xs">❤️</button>
           <button onClick={() => react("😂")} className="h-6 w-6 rounded-full hover:bg-[var(--muted)] text-xs">😂</button>
-          {onReply && <button onClick={() => onReply(msg.id)} className="h-6 px-2 rounded-full hover:bg-[var(--muted)] text-xs text-[var(--foreground)]">↩</button>}
+          {onReply && <button title="Reply" onClick={() => onReply(msg.id)} className="h-6 w-6 rounded-full hover:bg-[var(--muted)] text-[var(--foreground)] flex items-center justify-center"><CornerUpLeft className="h-3.5 w-3.5" /></button>}
           {isOwn && (
             <>
-              <button onClick={() => setEditing(true)} className="h-6 px-2 rounded-full hover:bg-[var(--muted)] text-xs text-[var(--foreground)]">✎</button>
-              <button onClick={handleDelete} className="h-6 px-2 rounded-full hover:bg-red-50 text-[var(--destructive)] text-xs">🗑</button>
+              <button title="Edit" onClick={() => setEditing(true)} className="h-6 w-6 rounded-full hover:bg-[var(--muted)] text-[var(--foreground)] flex items-center justify-center"><Pencil className="h-3.5 w-3.5" /></button>
+              <button title="Delete" onClick={handleDelete} className="h-6 w-6 rounded-full hover:bg-red-50 dark:hover:bg-red-950/40 text-[var(--destructive)] flex items-center justify-center"><Trash2 className="h-3.5 w-3.5" /></button>
             </>
           )}
         </div>
