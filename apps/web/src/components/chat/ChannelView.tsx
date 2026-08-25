@@ -170,7 +170,7 @@ export function ChannelView({ channelId }: Props) {
       <div ref={listRef} className="flex-1 overflow-y-auto py-2 bg-[var(--background)]">
         {allMessages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
-            <div className="h-12 w-12 rounded-2xl bg-[var(--gold-100)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] flex items-center justify-center text-xl">💬</div>
+            <div className="h-12 w-12 rounded-2xl bg-[var(--accent-100)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] flex items-center justify-center text-xl">💬</div>
             <p className="mt-3 text-sm font-medium text-[var(--foreground)]">No messages yet</p>
             <p className="text-xs text-[var(--muted-foreground)]">Be the first to break the ice</p>
           </div>
@@ -179,11 +179,11 @@ export function ChannelView({ channelId }: Props) {
             <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={me?.id === m.senderId} />
           ))
         )}
-        {typing.length > 0 && <div className="px-4 py-1 text-xs text-[var(--muted-foreground)] italic bg-[var(--gold-50)] dark:bg-white/5 border-y border-[var(--border)]">{typing.length === 1 ? "Someone is typing…" : `${typing.length} people are typing…`}</div>}
+        {typing.length > 0 && <div className="px-4 py-1 text-xs text-[var(--muted-foreground)] italic bg-[var(--accent-50)] dark:bg-white/5 border-y border-[var(--border)]">{typing.length === 1 ? "Someone is typing…" : `${typing.length} people are typing…`}</div>}
       </div>
 
       <div className="border-t border-[var(--border)] p-3 bg-[var(--card)]">
-        {replyTo && <div className="mb-2 text-xs text-[var(--primary)] bg-[var(--gold-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2">↩ Replying to {replyTo.slice(0, 8)} <button onClick={() => setReplyTo(null)} className="ml-2 underline">cancel</button></div>}
+        {replyTo && <div className="mb-2 text-xs text-[var(--primary)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2">↩ Replying to {replyTo.slice(0, 8)} <button onClick={() => setReplyTo(null)} className="ml-2 underline">cancel</button></div>}
         {attachmentKeys.length > 0 && <div className="mb-2 text-xs text-[var(--muted-foreground)] bg-[var(--muted)] border border-[var(--border)] rounded-lg px-3 py-2">{attachmentKeys.length} file(s) ready to send <button onClick={() => setAttachmentKeys([])} className="underline ml-2">clear</button></div>}
         <div className="flex items-end gap-2 rounded-[var(--radius)] border border-[var(--input-border)] bg-[var(--muted)] p-2">
           <button onClick={() => fileRef.current?.click()} className="h-8 w-8 rounded-[var(--radius-sm)] bg-[var(--card)] border border-[var(--border)] flex items-center justify-center text-sm hover:bg-[var(--background)] text-[var(--foreground)]">

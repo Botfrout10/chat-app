@@ -47,7 +47,7 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
 export function Badge({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full bg-[var(--gold-100)] text-[var(--brown-900)] dark:bg-[var(--sidebar-muted)] dark:text-[var(--accent)] border border-[var(--border)] px-2.5 py-0.5 text-xs font-medium ${className}`}
+      className={`inline-flex items-center rounded-full bg-[var(--accent-100)] text-[var(--accent-700)] dark:bg-[var(--sidebar-muted)] dark:text-[var(--accent-300)] border border-[var(--border)] px-2.5 py-0.5 text-xs font-medium ${className}`}
     >
       {children}
     </span>

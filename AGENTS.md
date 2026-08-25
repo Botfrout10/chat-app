@@ -64,7 +64,7 @@ Agents MUST commit regularly — after every completed unit of work. Do not leav
 - `apps/web/.git` must not exist (embedded repo breaks turbo root). Root `.git` is source.
 - Bun loads `.env` from cwd; `apps/api` needs its own `.env` copy.
 - Redis adapter needs `maxRetriesPerRequest: null` and `.duplicate()` for sub.
-- UI uses golden/brown tokens from `globals.css :root` (see DESIGN.md); sidebar `--sidebar`/`--sidebar-muted`.
+- UI uses petrol/mint tokens from `globals.css :root` (see DESIGN.md); sidebar `--sidebar`/`--sidebar-muted`; accent scale `--accent-50..700`.
 - Notifications: BullMQ queue `notifications` (`lib/queue.ts`, worker in `workers/notifications.ts`). Enqueue on message create; priority mention > thread > dm > channel; email via Mailpit SMTP :1025. Socket room `user:<id>` gets `notification:new`.
 
 ## Next work

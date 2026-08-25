@@ -1,69 +1,74 @@
 # DESIGN.md — Pulse UI/UX
 
 ## 1. Vision
-Pulse is a warm, focused team chat. Not Slack-blue, not Discord-blurple. Think **amber workshop at dusk**: paper, wood, honey, espresso. The palette makes long reading sessions comfortable and messages feel tactile.
+Pulse is a calm, focused team chat. The look: **Petrol & Mint** — deep teal surfaces, cool mist backgrounds, mint primary. Reads like a modern dev tool (Linear/Raycast energy), comfortable for long sessions, and clearly not Slack-blue or Discord-blurple.
 
-Goal: redesign every surface to use a **Golden / Brown** system that is controllable from a single `:root` in `apps/web/src/app/globals.css`. Changing a hex in `:root` repaints the whole app.
+Goal: every surface uses this system, controllable from a single `:root` in `apps/web/src/app/globals.css`. Changing a hex in `:root` repaints the whole app.
 
-## 2. Palette — Golden / Brown
+## 2. Palette — Petrol & Mint
 
 ### Light (default)
-Warm paper base with espresso text and honey accents.
+Cool mist base with deep petrol ink and teal primary.
 
 | Token | Hex | Usage |
 |---|---|---|
-| ` --background` | `#fdfbf7` | App canvas, page bg |
-| ` --foreground` | `#2b1d0f` | Primary text (espresso) |
-| ` --card` | `#ffffff` | Cards, composer, message hover |
-| ` --card-foreground` | `#2b1d0f` | Card text |
-| ` --muted` | `#f5efe6` | Subtle section bg, list hover |
-| ` --muted-foreground` | `#6b5a44` | Secondary text |
-| ` --border` | `#e8ddd0` | Dividers, inputs |
-| ` --input` | `#ffffff` | Input bg |
-| ` --input-border` | `#ddd0b8` | Input border |
-| ` --ring` | `#c9a86a` | Focus ring (muted gold) |
-| ` --primary` | `#b7791f` | Primary CTA, send, active channel, 11.09:1 contrast on cream |
-| ` --primary-hover` | `#a6691c` | Hover for primary |
-| ` --primary-foreground` | `#fffbf0` | Text on primary |
-| ` --secondary` | `#2b1d0f` | Secondary button bg |
-| ` --secondary-foreground` | `#fdfbf7` | Text on secondary |
-| ` --accent` | `#d4a24e` | Accent chip, presence dot, gold glow |
-| ` --accent-foreground` | `#2b1d0f` | Text on accent |
-| ` --destructive` | `#9a3412` | Delete |
-| ` --sidebar` | `#1c120a` | Workspace rail (deep espresso) |
-| ` --sidebar-foreground` | `#f5efe6` | Rail text |
-| ` --sidebar-muted` | `#2a1c0f` | Channel list bg |
-| ` --sidebar-border` | `#2e1f0f` | Sidebar divider |
-| ` --success` | `#15803d` | Online dot |
-| `--warning` | `#a16207` | Typing |
+| `--background` | `#f6f8f8` | App canvas, page bg |
+| `--foreground` | `#0c1a19` | Primary text (petrol ink) |
+| `--card` | `#ffffff` | Cards, composer, message hover |
+| `--card-foreground` | `#0c1a19` | Card text |
+| `--muted` | `#edf2f2` | Subtle section bg, list hover |
+| `--muted-foreground` | `#5b6f6d` | Secondary text |
+| `--border` | `#dde6e5` | Dividers, inputs |
+| `--input` | `#ffffff` | Input bg |
+| `--input-border` | `#cddad9` | Input border |
+| `--ring` | `#14b8a6` | Focus ring (teal) |
+| `--primary` | `#0f766e` | Primary CTA, send, active channel — AA on white/mist |
+| `--primary-hover` | `#115e59` | Hover for primary |
+| `--primary-foreground` | `#f0fdfa` | Text on primary |
+| `--secondary` | `#0c1a19` | Secondary button bg |
+| `--secondary-foreground` | `#f6f8f8` | Text on secondary |
+| `--accent` | `#06b6d4` | Cyan accent chip, links in sidebar |
+| `--accent-foreground` | `#08252b` | Text on accent |
+| `--destructive` | `#be123c` | Delete / error states |
+| `--sidebar` | `#081413` | Workspace rail (deep petrol) |
+| `--sidebar-foreground` | `#e6f2ef` | Rail text |
+| `--sidebar-muted` | `#0f201e` | Channel list bg |
+| `--sidebar-border` | `#16302d` | Sidebar divider |
+| `--success` | `#10b981` | Online dot |
+| `--warning` | `#d97706` | Typing |
 
 ### Dark
-Same temperature, inverted value. Background becomes warm charcoal, cards become espresso, borders lift.
+Same temperature, inverted value. Near-black petrol surfaces.
 
 | Token | Dark hex |
 |---|---|
-| ` --background` | `#140f0a` |
-| ` --foreground` | `#f5efe6` |
-| ` --card` | `#1f160f` |
-| ` --muted` | `#231a0f` |
-| ` --border` | `#2e2214` |
-| ` --input` | `#1f160f` |
-| ` --input-border` | `#3a2a14` |
-| ` --sidebar` | `#0f0a06` |
-| ` --sidebar-muted` | `#1a100a` |
+| `--background` | `#07100f` |
+| `--foreground` | `#e6f2ef` |
+| `--card` | `#0d1a18` |
+| `--muted` | `#11201e` |
+| `--border` | `#1c2f2c` |
+| `--input` | `#0d1a18` |
+| `--input-border` | `#24403c` |
+| `--ring` | `#2dd4bf` |
+| `--primary` | `#2dd4bf` |
+| `--primary-hover` | `#5eead4` |
+| `--primary-foreground` | `#04201c` |
+| `--accent` | `#22d3ee` |
+| `--sidebar` | `#050d0c` |
+| `--sidebar-muted` | `#0a1716` |
+| `--sidebar-border` | `#142623` |
 
 > All tokens live in `:root` and `.dark` (or `prefers-color-scheme: dark`). See `apps/web/src/app/globals.css:1`.
 
 ### Accent scale
-For charts, badges, reaction pills.
+For washes, badges, reaction pills, own-message tint.
 ```
---gold-50  #fdfbf0
---gold-100 #f5e6c8
---gold-300 #e8c48a
---gold-500 #d4a24e
---gold-600 #b7791f  ← primary
---gold-700 #8c5a18
---brown-900 #1c120a
+--accent-50  #effcfa   ← mint wash (own messages, reply banner)
+--accent-100 #d3f5ee   ← badge/chip bg
+--accent-300 #5eead4   ← borders, dark-mode badge text
+--accent-500 #14b8a6
+--accent-600 #0f766e   ← primary (light)
+--accent-700 #115e59   ← badge text on light
 ```
 
 ## 3. :root Interface — Single Source of Truth
@@ -72,64 +77,46 @@ For charts, badges, reaction pills.
 
 ```css
 :root {
-  --background: #fdfbf7;
-  --foreground: #2b1d0f;
+  --background: #f6f8f8;
+  --foreground: #0c1a19;
   --card: #ffffff;
-  --card-foreground: #2b1d0f;
-  --muted: #f5efe6;
-  --muted-foreground: #6b5a44;
-  --border: #e8ddd0;
+  --muted: #edf2f2;
+  --muted-foreground: #5b6f6d;
+  --border: #dde6e5;
   --input: #ffffff;
-  --input-border: #ddd0b8;
-  --ring: #c9a86a;
-  --primary: #b7791f;
-  --primary-hover: #a6691c;
-  --primary-foreground: #fffbf0;
-  --secondary: #2b1d0f;
-  --secondary-foreground: #fdfbf7;
-  --accent: #d4a24e;
-  --accent-foreground: #2b1d0f;
-  --sidebar: #1c120a;
-  --sidebar-muted: #2a1c0f;
-  --sidebar-border: #2e1f0f;
-  --radius: 1rem;           /* 16px — rounded-2xl */
-  --radius-sm: 0.75rem;     /* 12px */
-  --radius-full: 9999px;
-  --shadow-soft: 0 4px 24px rgba(43,29,15,0.08);
-  --shadow-card: 0 8px 32px rgba(43,29,15,0.12);
+  --input-border: #cddad9;
+  --ring: #14b8a6;
+  --primary: #0f766e;
+  --primary-hover: #115e59;
+  --primary-foreground: #f0fdfa;
+  --accent: #06b6d4;
+  --sidebar: #081413;
+  --sidebar-muted: #0f201e;
+  --radius: 1rem;
+  --shadow-soft: 0 4px 24px rgba(6,26,24,.08);
+  --shadow-card: 0 8px 32px rgba(6,26,24,.14);
 }
 .dark {
-  --background: #140f0a;
-  --foreground: #f5efe6;
-  --card: #1f160f;
-  --muted: #231a0f;
-  --muted-foreground: #a89070;
-  --border: #2e2214;
-  --input: #1f160f;
-  --input-border: #3a2a14;
-  --primary: #d4a24e;
-  --primary-hover: #e8b86a;
-  --primary-foreground: #1a120a;
-  --sidebar: #0f0a06;
-  --sidebar-muted: #1a100a;
+  --background: #07100f;
+  --foreground: #e6f2ef;
+  --card: #0d1a18;
+  --primary: #2dd4bf;
+  /* ... */
 }
 @theme inline { /* Tailwind v4 mapping */
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-border: var(--border);
   --color-primary: var(--primary);
   /* ... */
 }
 ```
 
-Change any hex → entire app updates. No hard-coded colors in components; use `bg-[var(--primary)]`, `border-[var(--border)]`, `text-[var(--muted-foreground)]` or mapped Tailwind tokens `bg-primary`, `bg-sidebar`.
+Change any hex → entire app updates. No hard-coded colors in components; use mapped Tailwind tokens (`bg-primary`, `bg-sidebar`) or arbitrary values (`bg-[var(--primary)]`).
 
 ## 4. Typography & Shape
 
 - **Fonts:** Geist Sans (body), Geist Mono (code). 14px base, 13px secondary, line-height 1.6 for messages.
 - **Radius:** 16px (`--radius`) for cards/composer, 12px for inputs/pills, full for avatars.
-- **Shadow:** soft, warm — no cool blue shadows.
+- **Shadow:** soft, cool petrol tint — never blue-gray.
 - **Motion:** 150ms ease for hover, 200ms for presence.
 
 ## 5. Layout
@@ -165,9 +152,9 @@ Header (56px, bg-card, border-b) — hidden actions when authed: shows user avat
 - `bg-card border-border rounded-[var(--radius)] shadow-soft`
 
 ### MessageItem
-- Avatar: `bg-gradient-to-br from-[var(--primary)] to-[var(--accent)]` (gold-to-honey), 32px, initials.
+- Avatar: `bg-gradient-to-br from-[var(--primary)] to-[var(--accent)]` (teal-to-cyan), 32px, initials.
 - Hover: `bg-muted/60`
-- Own: `bg-[var(--gold-50)] dark:bg-[var(--sidebar-muted)]` subtle honey wash.
+- Own: `bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)]` subtle mint wash + `--accent-300` left border.
 - Actions pill: `bg-card border-border shadow-card`
 - Reactions: `border-border bg-card hover:bg-muted` pill, `text-muted-foreground` count.
 - Deleted: italic `text-muted-foreground`.
@@ -178,14 +165,14 @@ Header (56px, bg-card, border-b) — hidden actions when authed: shows user avat
 - Unread badge: `bg-primary`
 
 ### Login
-- Centered `max-w-sm` card, `bg-card`, border, honey header gradient.
+- Centered `max-w-sm` card, `bg-card`, border, teal header gradient.
 
 ## 7. States & Accessibility
 
-- **Contrast:** Primary `#b7791f` on `#fdfbf7` = 5.5:1, on `#ffffff` = 5.1:1 (AA). On dark, `#d4a24e` on `#140f0a` = 9:1.
+- **Contrast:** Primary `#0f766e` on `#f6f8f8` = 5.6:1, on `#ffffff` = 5.9:1 (AA). On dark, `#2dd4bf` on `#07100f` = 11.4:1.
 - **Focus:** 2px ring `var(--ring)` + `ring-offset` 2px `var(--background)`.
 - **Empty:** Dashed border `border-border` with muted icon.
-- **Error:** `bg-red-50 text-red-800 border-red-200` (keep semantic red, not gold).
+- **Error:** `bg-red-50 text-red-800 border-red-200` (keep semantic red, not teal).
 
 ## 8. Bug Fixes in This Redesign
 
@@ -200,10 +187,10 @@ Header (56px, bg-card, border-b) — hidden actions when authed: shows user avat
 - `apps/web/src/components/ui/button.tsx` — Input/Textarea/Badge/Card use vars
 - `apps/web/src/app/layout.tsx` — no change, inherits vars
 - `apps/web/src/app/page.tsx` — auth-aware, hero conditional
-- `apps/web/src/app/login/page.tsx` — gold card, fixed inputs
+- `apps/web/src/app/login/page.tsx` — petrol card, fixed inputs
 - `apps/web/src/components/chat/AppShell.tsx` — sidebar vars, inline errors, slugify
 - `apps/web/src/components/chat/ChannelView.tsx` — composer/card vars
-- `apps/web/src/components/chat/MessageItem.tsx` — gold avatar, muted hover
+- `apps/web/src/components/chat/MessageItem.tsx` — teal avatar, muted hover
 - `apps/web/src/lib/api.ts` — signout fix
 
 ## 10. How to Tune
@@ -211,8 +198,8 @@ Header (56px, bg-card, border-b) — hidden actions when authed: shows user avat
 Change palette: edit 2 blocks in `globals.css:1`. No other file needs edits:
 
 ```css
-:root { --primary: #b7791f; --background: #fdfbf7; ... }
-.dark { --primary: #d4a24e; --background: #140f0a; ... }
+:root { --primary: #0f766e; --background: #f6f8f8; ... }
+.dark { --primary: #2dd4bf; --background: #07100f; ... }
 ```
 
 Tailwind mapping via `@theme inline` auto-propagates to `bg-primary`, `text-foreground`, etc.

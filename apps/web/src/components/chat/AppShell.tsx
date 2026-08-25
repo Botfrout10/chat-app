@@ -193,7 +193,7 @@ export function AppShell() {
         <div className="h-px w-8 bg-white/10 my-1" />
         <div className="flex flex-col gap-2 w-full px-2">
           <Input value={newWsName} onChange={(e) => setNewWsName(e.target.value)} placeholder="New workspace" className="h-7 text-xs bg-white/5 border-white/10 text-white placeholder:text-white/40" />
-          {wsError && <div className="text-xs text-amber-200 bg-amber-950/40 border border-amber-800 rounded-lg p-1">{wsError}</div>}
+          {wsError && <div className="text-xs text-red-200 bg-red-950/40 border border-red-800 rounded-lg p-1">{wsError}</div>}
           <Button size="sm" onClick={createWorkspace} className="h-7 text-xs">+ Create</Button>
         </div>
         <div className="mt-auto flex flex-col items-center gap-2">
@@ -255,7 +255,7 @@ export function AppShell() {
         {showInvite && (
           <div className="p-3 border-b border-[var(--sidebar-border)] space-y-2 bg-black/10">
             <Input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doInvite()} placeholder="Add by name or email" className="bg-white/5 border-white/10 text-white placeholder:text-white/40" />
-            {inviteError && <div className="text-xs text-amber-200 bg-amber-950/40 border border-amber-800/50 rounded-lg p-2">{inviteError}</div>}
+            {inviteError && <div className="text-xs text-red-200 bg-red-950/40 border border-red-800/50 rounded-lg p-2">{inviteError}</div>}
             {memberMsg && <div className={`text-xs rounded-lg p-2 border ${memberMsg.kind === "ok" ? "text-emerald-200 bg-emerald-950/40 border-emerald-800/50" : "text-red-200 bg-red-950/40 border-red-800/50"}`}>{memberMsg.text}</div>}
             <Button size="sm" className="w-full" onClick={doInvite}>Add member</Button>
             <div className="text-xs text-white/30">Exact name or email. Unknown emails get an invite link instead.</div>
@@ -302,7 +302,7 @@ export function AppShell() {
                 <input value={newChannelName} onChange={(e) => setNewChannelName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createChannel()} placeholder="new-channel (a-z, 0-9, -)" className="flex-1 h-7 rounded-lg bg-white/5 border border-white/10 px-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:border-[var(--primary)]" />
                 <Button size="sm" onClick={createChannel} className="h-7 px-3">+</Button>
               </div>
-              {chError && <div className="text-xs text-amber-200 bg-amber-950/30 border border-amber-800/50 rounded-lg p-2">{chError}</div>}
+              {chError && <div className="text-xs text-red-200 bg-red-950/30 border border-red-800/50 rounded-lg p-2">{chError}</div>}
               <div className="text-xs text-white/30">Spaces → “-”, auto-lowercased.</div>
             </div>
           </div>

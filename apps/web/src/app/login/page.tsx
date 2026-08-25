@@ -68,7 +68,7 @@ function LoginInner() {
           <Button type="submit" disabled={loading} className="w-full">{loading ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}</Button>
 
           <div className="text-xs text-[var(--muted-foreground)] text-center">
-            Secure • Honey-gold • <span className="text-[var(--primary)]">Better-Auth</span> via Fastify
+            Secure • Petrol-mint • <span className="text-[var(--primary)]">Better-Auth</span> via Fastify
           </div>
         </form>
       </div>

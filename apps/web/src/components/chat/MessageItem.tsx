@@ -51,7 +51,7 @@ export function MessageItem({ msg, onReply, isOwn }: { msg: Msg; onReply?: (id: 
     <div
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
-      className={`group relative flex gap-3 px-4 py-2 hover:bg-[var(--muted)]/60 ${isOwn ? "bg-[var(--gold-50)] dark:bg-white/[0.03] border-l-2 border-[var(--gold-300)]" : "border-l-2 border-transparent"}`}
+      className={`group relative flex gap-3 px-4 py-2 hover:bg-[var(--muted)]/60 ${isOwn ? "bg-[var(--accent-50)] dark:bg-white/[0.03] border-l-2 border-[var(--accent-300)]" : "border-l-2 border-transparent"}`}
     >
       <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] text-xs font-semibold shrink-0 shadow-[var(--shadow-soft)]">
         {(msg.sender?.name ?? "?").slice(0, 2).toUpperCase()}
