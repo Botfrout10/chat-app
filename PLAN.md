@@ -27,6 +27,8 @@ Source of truth for where the project stands. Check off completed features, mark
 - [x] Inline previews: images rendered (`NEXT_PUBLIC_MINIO_URL`), non-images as filename+size cards
 - [x] Notifications dropdown w/ unread badge, presence dots, message search
 - [x] Petrol & mint redesign
+- [x] Read receipts: seen-by avatar stack on messages + unread dot on channels (mark-on-view, `read:receipt` WS fan-out)
+- [x] Invite acceptance page (`/invite/[token]`) — expired/used/already-member/unauth branches + login redirect carry-through
 
 ### Infra
 - [x] docker-compose (postgres, redis, minio + bucket creator, mailpit)
@@ -53,8 +55,6 @@ Full chat parity with web; bearer-token auth; push notifications deferred to pha
 ## Remaining / next up
 
 - [ ] Push notifications (phase 2): device token registry migration, `POST /api/push/register`, expo-server-sdk delivery in notifications worker, deep links
-- [ ] Read-receipt rendering (endpoint + WS event exist, no UI yet)
-- [ ] Invite acceptance screen (`/invite/[token]` missing on web; API exists)
 - [ ] Search v2 (`tsvector` GIN), OpenSearch
 
 ## AI integration (roadmap)
