@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useChatStore } from "@/store/chat";
 import { Button, Input } from "@/components/ui/button";
 import { ChannelView } from "./ChannelView";
+import { LlmManager } from "./LlmManager";
 import { getSocket, connectSocket } from "@/lib/socket";
 
 function slugify(name: string) {
@@ -140,6 +141,27 @@ export function AppShell() {
   });
   const dmCandidates = ((wsMembers as any) ?? []).filter((m: any) => m.id !== me?.id);
   const [dmError, setDmError] = useState<string | null>(null);
+
+  // AI model connections
+  const [showLlmManager, setShowLlmManager] = useState(false);
+  const { data: llmConnections } = useQuery({
+    queryKey: ["llm-connections"],
+    queryFn: () => api.llmConnections().catch(() => []),
+    enabled: !!me?.id,
+  });
+  async function openLlmDm(connectionId: string) {
+    setDmError(null);
+    if (!activeWorkspaceId) return;
+    try {
+      const ch: any = await api.createLlmDm(connectionId, activeWorkspaceId);
+      const chs = await api.channels(activeWorkspaceId);
+      setChannels(chs as any);
+      setActiveChannel(ch.id);
+    } catch (e: any) {
+      setDmError((e.message ?? "Failed to open model chat").slice(0, 160));
+    }
+  }
+
   async function openDm(userId: string) {
     setDmError(null);
     if (!activeWorkspaceId) return;
@@ -340,6 +362,30 @@ export function AppShell() {
           </div>
 
           <div>
+            <div className="text-xs font-semibold tracking-widest text-white/40 mb-2 flex items-center justify-between">
+              <span>AI MODELS</span>
+              <button onClick={() => setShowLlmManager(true)} className="h-5 w-5 rounded-md bg-white/10 hover:bg-white/15 text-xs border border-white/10" title="Connect / manage models">＋</button>
+            </div>
+            {((llmConnections as any[]) ?? []).length === 0 && (
+              <div className="text-xs text-white/40">No models connected — tap ＋ to add LM Studio or another OpenAI-compatible endpoint.</div>
+            )}
+            <div className="space-y-1">
+              {((llmConnections as any[]) ?? []).map((c: any) => (
+                <button
+                  key={c.id}
+                  onClick={() => openLlmDm(c.id)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-white/60 hover:bg-white/5 hover:text-white"
+                  title={`${c.modelId} — open chat`}
+                >
+                  <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)] text-[10px] font-bold shrink-0">✦</span>
+                  <span className="truncate">{c.label}</span>
+                  <span className={`ml-auto h-2 w-2 rounded-full shrink-0 ${c.status === "ok" ? "bg-emerald-500" : c.status === "error" ? "bg-red-500" : "bg-amber-500"}`} />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
             <div className="text-xs font-semibold tracking-widest text-white/40 mb-2">DIRECT MESSAGES</div>
             {dmCandidates.length === 0 && <div className="text-xs text-white/40">No other members yet — add someone with ＋.</div>}
             <div className="space-y-1">
@@ -393,6 +439,7 @@ export function AppShell() {
 
       {/* main */}
       <div className="flex-1 flex flex-col min-w-0 bg-[var(--background)]">
+        <LlmManager open={showLlmManager} onClose={() => setShowLlmManager(false)} />
         {activeChannelId ? (
           <ChannelView
             key={activeChannelId}

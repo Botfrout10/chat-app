@@ -57,6 +57,16 @@ export const api = {
   authSignIn: (email: string, password: string) =>
     req(`/api/auth/sign-in/email`, { method: "POST", body: JSON.stringify({ email, password }) }),
   authSignOut: () => req(`/api/auth/sign-out`, { method: "POST", body: JSON.stringify({}) }),
+
+  // AI model connections
+  llmConnections: () => req(`/api/llm/connections`),
+  createLlmConnection: (data: { label: string; baseUrl: string; modelId: string; mentionName?: string }) =>
+    req(`/api/llm/connections`, { method: "POST", body: JSON.stringify(data) }),
+  deleteLlmConnection: (id: string) => req(`/api/llm/connections/${id}`, { method: "DELETE" }),
+  verifyLlmConnection: (id: string) => req(`/api/llm/connections/${id}/verify`, { method: "POST", body: JSON.stringify({}) }),
+  llmConnectionStatus: (id: string) => req(`/api/llm/connections/${id}/status`),
+  createLlmDm: (connectionId: string, workspaceId: string) =>
+    req(`/api/llm/connections/${connectionId}/dm`, { method: "POST", body: JSON.stringify({ workspaceId }) }),
 };
 
 export { API_URL };

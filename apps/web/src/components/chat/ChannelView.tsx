@@ -32,6 +32,20 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: () => api.me().catch(() => null) });
 
+  // connected models: streaming state, typing indicator, mention candidates
+  const { data: llmConnections } = useQuery({
+    queryKey: ["llm-connections"],
+    queryFn: () => api.llmConnections().catch(() => []),
+    enabled: !!workspaceId,
+  });
+  const connLabel = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of (llmConnections as any[]) ?? []) map.set(c.id, c.label);
+    return map;
+  }, [llmConnections]);
+  const [stream, setStream] = useState<{ connectionId: string; text: string } | null>(null);
+  const [llmTyping, setLlmTyping] = useState<string | null>(null); // connectionId
+
   useEffect(() => {
     const s = connectSocket();
     const join = () => s.emit("join:channel", channelId);
@@ -47,6 +61,11 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     };
     const onNew = (msg: any) => {
       qc.setQueryData(["messages", channelId], (old: any) => upsert(old, msg));
+      // final LLM reply arrived — drop the streaming placeholder
+      if (msg?.llmConnectionId) {
+        setStream((cur) => (cur?.connectionId === msg.llmConnectionId ? null : cur));
+        setLlmTyping((cur) => (cur === msg.llmConnectionId ? null : cur));
+      }
       setTimeout(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }), 50);
     };
     const onUpdated = (msg: any) => {
@@ -79,6 +98,37 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   }, [channelId, qc]);
 
   const [typing, setTyping] = useState<string[]>([]);
+  useEffect(() => {
+    const s = getSocket();
+    // LLM streaming: typing → deltas → final message (handled in onNew above)
+    const onLlmTyping = (p: any) => {
+      if (p.channelId !== channelId) return;
+      setLlmTyping(p.isTyping ? p.connectionId : null);
+      if (!p.isTyping) return;
+      setStream({ connectionId: p.connectionId, text: "" });
+    };
+    const onLlmDelta = (p: any) => {
+      if (p.channelId !== channelId || !p.delta) return;
+      setStream((cur) =>
+        cur && cur.connectionId === p.connectionId ? { ...cur, text: cur.text + p.delta } : cur,
+      );
+      listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+    };
+    const onLlmError = (p: any) => {
+      if (p.channelId !== channelId) return;
+      setLlmTyping(null);
+      setStream((cur) => (cur?.connectionId === p.connectionId ? null : cur));
+    };
+    s.on("llm:typing", onLlmTyping);
+    s.on("llm:delta", onLlmDelta);
+    s.on("llm:error", onLlmError);
+    return () => {
+      s.off("llm:typing", onLlmTyping);
+      s.off("llm:delta", onLlmDelta);
+      s.off("llm:error", onLlmError);
+    };
+  }, [channelId]);
+
   useEffect(() => {
     const s = getSocket();
     const handler = (p: any) => {
@@ -122,17 +172,21 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     return s;
   }, [members]);
 
-  // @mention autocomplete state
+  // @mention autocomplete state — includes connected AI models
+  const modelCandidates = useMemo(
+    () => (((llmConnections as any[]) ?? []).map((c: any) => ({ id: c.id, name: c.label, email: `@${c.mentionName}`, isModel: true, mentionName: c.mentionName }))),
+    [llmConnections],
+  );
   const [ac, setAc] = useState<{ open: boolean; q: string }>({ open: false, q: "" });
   const acMatches = useMemo(() => {
     if (!ac.open) return [];
     const q = ac.q.toLowerCase();
-    return ((members as any) ?? []).filter((m: any) => {
+    return [...((members as any) ?? []), ...modelCandidates].filter((m: any) => {
       const n = String(m.name ?? "").toLowerCase();
       const e = String(m.email ?? "").toLowerCase();
       return n.startsWith(q) || e.startsWith(q);
     }).slice(0, 6);
-  }, [ac, members]);
+  }, [ac, members, modelCandidates]);
 
   const AC_RE = /@([\p{L}\p{N}_.-]*)$/u;
   function handleInput(v: string) {
@@ -142,8 +196,8 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     else setAc({ open: false, q: "" });
   }
 
-  function pickMention(name: string) {
-    setInput((prev) => prev.replace(/@([\p{L}\p{N}_.-]*)$/u, `@${name} `));
+  function pickMention(m: any) {
+    setInput((prev) => prev.replace(/@([\p{L}\p{N}_.-]*)$/u, `@${m.isModel ? m.mentionName : m.name} `));
     setAc({ open: false, q: "" });
   }
 
@@ -225,6 +279,22 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
             <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={me?.id === m.senderId} memberTokens={memberTokens} meName={me?.name} />
           ))
         )}
+        {stream && (
+          <div className="px-4 py-2 flex items-start gap-3 hover:bg-[var(--muted)]/60">
+            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)] text-xs font-bold shrink-0">✦</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold text-[var(--foreground)]">
+                {connLabel.get(stream.connectionId) ?? "AI"} <span className="font-normal text-[var(--muted-foreground)]">{stream.text ? "is writing…" : "is thinking…"}</span>
+              </div>
+              {stream.text && (
+                <div className="mt-1 text-sm text-[var(--foreground)] whitespace-pre-wrap break-words">
+                  {stream.text}
+                  <span className="inline-block w-[7px] h-[14px] align-middle bg-[var(--primary)] animate-pulse ml-0.5" />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {typing.length > 0 && <div className="px-4 py-1 text-xs text-[var(--muted-foreground)] italic bg-[var(--accent-50)] dark:bg-white/5 border-y border-[var(--border)]">{typing.length === 1 ? "Someone is typing…" : `${typing.length} people are typing…`}</div>}
         </div>
       </div>
@@ -245,10 +315,14 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           <div className="absolute bottom-full left-3 right-3 mb-2 rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-card)] overflow-hidden z-10">
             <div className="px-3 py-1.5 text-xs font-semibold tracking-widest text-[var(--muted-foreground)] border-b border-[var(--border)]">MEMBERS</div>
             {acMatches.map((m: any) => (
-              <button key={m.id} onMouseDown={(e) => { e.preventDefault(); pickMention(m.name); }} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--muted)] text-left">
-                <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] text-[10px] font-bold">{String(m.name).slice(0, 2).toUpperCase()}</span>
+              <button key={m.id} onMouseDown={(e) => { e.preventDefault(); pickMention(m); }} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--muted)] text-left">
+                {m.isModel ? (
+                  <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)] text-[10px] font-bold">✦</span>
+                ) : (
+                  <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] text-[10px] font-bold">{String(m.name).slice(0, 2).toUpperCase()}</span>
+                )}
                 <span className="text-sm text-[var(--foreground)]">{m.name}</span>
-                <span className="text-xs text-[var(--muted-foreground)] ml-auto truncate max-w-[160px]">{m.email}</span>
+                <span className="text-xs text-[var(--muted-foreground)] ml-auto truncate max-w-[160px]">{m.isModel ? `model · @${m.mentionName}` : m.email}</span>
               </button>
             ))}
           </div>
@@ -264,7 +338,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
             onKeyDown={(e) => {
               if (ac.open && acMatches.length > 0 && (e.key === "Enter" || e.key === "Tab")) {
                 e.preventDefault();
-                pickMention(acMatches[0].name);
+                pickMention(acMatches[0]);
                 return;
               }
               if (e.key === "Escape") setAc({ open: false, q: "" });
