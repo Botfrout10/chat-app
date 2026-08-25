@@ -1,6 +1,7 @@
 "use client";
 import { useEffect } from "react";
 import { create } from "zustand";
+import { X } from "lucide-react";
 
 type State = {
   url: string | null;
@@ -56,9 +57,9 @@ export function ImageLightbox() {
           <button
             onClick={close}
             aria-label="Close preview"
-            className="h-8 w-8 rounded-full bg-white/10 hover:bg-white/15 text-white flex items-center justify-center text-sm"
+            className="h-8 w-8 rounded-full bg-white/10 hover:bg-white/15 text-white flex items-center justify-center"
           >
-            ✕
+            <X className="h-4 w-4" />
           </button>
         </div>
       </div>
