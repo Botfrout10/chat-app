@@ -5,9 +5,37 @@ import { api } from "@/lib/api";
 import { getSocket, connectSocket } from "@/lib/socket";
 import { MessageItem } from "./MessageItem";
 import { Button } from "@/components/ui/button";
-import { AtSign, BrainCircuit, CornerUpLeft, FileText, Hash, MessagesSquare, Paperclip, Sparkles, X } from "lucide-react";
+import { AtSign, BrainCircuit, CornerDownLeft, FileText, Hash, Paperclip, Sparkles, X } from "lucide-react";
+import { useStickToBottomContext } from "use-stick-to-bottom";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
+import { Message, MessageResponse } from "@/components/ai-elements/message";
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
+import { Shimmer } from "@/components/ai-elements/shimmer";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputButton,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputTools,
+} from "@/components/ai-elements/prompt-input";
 
 type Props = { channelId: string; workspaceId?: string; channel?: any };
+
+/** Keeps a ref in sync with "is the conversation pinned to bottom" (for read receipts). */
+function AtBottomSync({ isAtBottomRef }: { isAtBottomRef: React.MutableRefObject<boolean> }) {
+  const { isAtBottom } = useStickToBottomContext();
+  useEffect(() => {
+    isAtBottomRef.current = isAtBottom;
+  }, [isAtBottom, isAtBottomRef]);
+  return null;
+}
 
 export function ChannelView({ channelId, workspaceId, channel }: Props) {
   const qc = useQueryClient();
@@ -16,7 +44,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   const [uploading, setUploading] = useState(false);
   const [attachments, setAttachments] = useState<{ key: string; filename: string; mime: string; size: number; url: string }[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useInfiniteQuery({
     queryKey: ["messages", channelId],
@@ -77,11 +104,10 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         setStream((cur) => (cur?.connectionId === msg.llmConnectionId ? null : cur));
         setLlmTyping((cur) => (cur === msg.llmConnectionId ? null : cur));
       }
-      // auto-mark read when in view and at bottom
+      // auto-mark read when in view and at bottom (StickToBottom pins us there)
       if (meId && isAtBottomRef.current && msg?.id) {
         api.markRead(channelId, msg.id).catch(() => {});
       }
-      setTimeout(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }), 50);
     };
     const onUpdated = (msg: any) => {
       qc.setQueryData(["messages", channelId], (old: any) => {
@@ -110,7 +136,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       s.off("message:updated", onUpdated);
       s.off("message:deleted", onDeleted);
     };
-  }, [channelId, qc]);
+  }, [channelId, qc, meId]);
 
   const [typing, setTyping] = useState<string[]>([]);
   useEffect(() => {
@@ -133,7 +159,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       setStream((cur) =>
         cur && cur.connectionId === p.connectionId ? { ...cur, text: cur.text + p.delta } : cur,
       );
-      listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
     };
     const onLlmError = (p: any) => {
       if (p.channelId !== channelId) return;
@@ -174,21 +199,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     lastMarkedRef.current = latest;
     api.markRead(channelId, latest).catch(() => {});
   };
-
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    };
-    onScroll();
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useEffect(() => {
-    if (listRef.current && allMessages.length) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [allMessages.length]);
 
   useEffect(() => {
     markReadAtBottom();
@@ -252,7 +262,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
 
   const AC_RE = /@([\p{L}\p{N}_.-]*)$/u;
   function handleInput(v: string) {
-    setInput(v);
+    handleTyping(v);
     const m = AC_RE.exec(v);
     if (m && workspaceId) setAc({ open: true, q: m[1] });
     else setAc({ open: false, q: "" });
@@ -263,14 +273,19 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     setAc({ open: false, q: "" });
   }
 
+  async function uploadFile(file: File): Promise<{ key: string; filename: string; mime: string; size: number }> {
+    const presigned: any = await api.presign({ filename: file.name, mime: file.type || "application/octet-stream", size: file.size });
+    await fetch(presigned.url, { method: "PUT", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
+    return { key: presigned.key, filename: presigned.filename, mime: presigned.mime, size: presigned.size };
+  }
+
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
     try {
-      const presigned: any = await api.presign({ filename: file.name, mime: file.type || "application/octet-stream", size: file.size });
-      await fetch(presigned.url, { method: "PUT", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
-      setAttachments((k) => [...k, { key: presigned.key, filename: presigned.filename, mime: presigned.mime, size: presigned.size, url: presigned.url }]);
+      const att = await uploadFile(file);
+      setAttachments((k) => [...k, { ...att, url: "" }]);
     } catch (err) {
       alert("Upload failed: " + (err as Error).message);
     } finally {
@@ -279,9 +294,10 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     }
   }
 
-  async function send() {
-    if (!input.trim() && attachments.length === 0) return;
-    const content = input.trim() || "📎 Attachment";
+  async function send(textOverride?: string) {
+    const text = textOverride ?? input;
+    if (!text.trim() && attachments.length === 0) return;
+    const content = text.trim() || "(attachment)";
     const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const parentAtSend = replyTo;
     setInput("");
@@ -298,12 +314,15 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         pages[0] = { ...pages[0], messages: [saved, ...pages[0].messages] };
         return { ...old, pages };
       });
-      setTimeout(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }), 50);
       const s = getSocket();
       s.emit("typing:stop", { channelId });
     } catch (e) {
       alert((e as Error).message);
     }
+  }
+
+  async function handlePromptSubmit({ text }: { text: string }) {
+    await send(text);
   }
 
   // NOTE: must stay above any early return — all hooks run unconditionally
@@ -340,49 +359,63 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         </div>
       </div>
 
-      <div ref={listRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--background)]">
-        <div className="flex-1 py-2">
-        {allMessages.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
-            <div className="h-12 w-12 rounded-2xl bg-[var(--accent-100)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] flex items-center justify-center"><MessagesSquare className="h-6 w-6 text-[var(--primary)]" /></div>
-            <p className="mt-3 text-sm font-medium text-[var(--foreground)]">No messages yet</p>
-            <p className="text-xs text-[var(--muted-foreground)]">Be the first to break the ice</p>
-          </div>
-        ) : (
-          allMessages.map((m: any) => (
-            <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={meId === m.senderId} memberTokens={memberTokens} meName={meName} readBy={readByMap.get(m.id) ?? []} />
-          ))
-        )}
-        {stream && (
-          <div className="px-4 py-2 flex items-start gap-3 hover:bg-[var(--muted)]/60">
-            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)] shrink-0"><Sparkles className="h-4 w-4" /></span>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-[var(--foreground)]">
-                {connLabel.get(stream.connectionId) ?? "AI"} <span className="font-normal text-[var(--muted-foreground)]">{stream.text ? "is writing…" : "is thinking…"}</span>
+      <Conversation className="bg-[var(--background)]">
+        <AtBottomSync isAtBottomRef={isAtBottomRef} />
+        <ConversationContent className="mx-auto w-full max-w-3xl gap-0 px-4 py-2">
+          {allMessages.length === 0 ? (
+            <ConversationEmptyState
+              icon={
+                <div className="h-12 w-12 rounded-2xl bg-[var(--accent-100)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] flex items-center justify-center">
+                  <BrainCircuit className="h-6 w-6 text-[var(--primary)]" />
+                </div>
+              }
+              title="No messages yet"
+              description="Be the first to break the ice"
+            />
+          ) : (
+            allMessages.map((m: any) => (
+              <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={meId === m.senderId} memberTokens={memberTokens} meName={meName} readBy={readByMap.get(m.id) ?? []} />
+            ))
+          )}
+
+          {/* live LLM stream placeholder */}
+          {stream && (
+            <Message from="assistant" className="max-w-full gap-1 py-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[var(--foreground)]">
+                <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)]"><Sparkles className="h-3 w-3" /></span>
+                {connLabel.get(stream.connectionId) ?? "AI"}
+                {!stream.text && !stream.thinking && (
+                  <Shimmer className="font-normal text-[var(--muted-foreground)]">is thinking…</Shimmer>
+                )}
               </div>
               {!!stream.thinking && (
-                <details className="mt-1" open={!stream.text}>
-                  <summary className="cursor-pointer select-none text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] inline-flex items-center gap-1"><BrainCircuit className="h-3.5 w-3.5" /> Thinking</summary>
-                  <div className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words border-l-2 border-[var(--border)] pl-3 text-xs text-[var(--muted-foreground)]">
+                <Reasoning isStreaming={!stream.text} defaultOpen={!stream.text}>
+                  <ReasoningTrigger className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]" />
+                  <ReasoningContent className="max-h-64 overflow-y-auto break-words text-xs text-[var(--muted-foreground)]">
                     {stream.thinking}
-                  </div>
-                </details>
+                  </ReasoningContent>
+                </Reasoning>
               )}
-              {stream.text && (
-                <div className="mt-1 text-sm text-[var(--foreground)] whitespace-pre-wrap break-words">
-                  {stream.text}
-                  <span className="inline-block w-[7px] h-[14px] align-middle bg-[var(--primary)] animate-pulse ml-0.5" />
-                </div>
-              )}
+              {stream.text && <MessageResponse className="text-sm break-words">{stream.text}</MessageResponse>}
+            </Message>
+          )}
+
+          {typing.length > 0 && (
+            <div className="px-4 py-1 text-xs text-[var(--muted-foreground)] italic bg-[var(--accent-50)] dark:bg-white/5 border-y border-[var(--border)] -mx-4">
+              {typing.length === 1 ? "Someone is typing…" : `${typing.length} people are typing…`}
             </div>
+          )}
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
+
+      <div className="relative border-t border-[var(--border)] p-3 bg-[var(--card)] shrink-0 mx-auto w-full max-w-3xl">
+        {replyTo && (
+          <div className="mb-2 text-xs text-[var(--primary)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2 flex items-center gap-1">
+            <CornerDownLeft className="h-3 w-3" /> Replying to {replyTo.slice(0, 8)}
+            <button onClick={() => setReplyTo(null)} className="ml-2 underline">cancel</button>
           </div>
         )}
-        {typing.length > 0 && <div className="px-4 py-1 text-xs text-[var(--muted-foreground)] italic bg-[var(--accent-50)] dark:bg-white/5 border-y border-[var(--border)]">{typing.length === 1 ? "Someone is typing…" : `${typing.length} people are typing…`}</div>}
-        </div>
-      </div>
-
-      <div className="border-t border-[var(--border)] p-3 bg-[var(--card)] relative shrink-0">
-        {replyTo && <div className="mb-2 text-xs text-[var(--primary)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2 flex items-center gap-1"><CornerUpLeft className="h-3 w-3" /> Replying to {replyTo.slice(0, 8)} <button onClick={() => setReplyTo(null)} className="ml-2 underline">cancel</button></div>}
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {attachments.map((a) => (
@@ -394,7 +427,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           </div>
         )}
         {ac.open && acMatches.length > 0 && (
-          <div className="absolute bottom-full left-3 right-3 mb-2 rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-card)] overflow-hidden z-10">
+          <div className="absolute bottom-full left-3 right-3 mb-2 rounded-xl border border-[var(--border)] bg-popover shadow-[var(--shadow-card)] overflow-hidden z-10">
             <div className="px-3 py-1.5 text-xs font-semibold tracking-widest text-[var(--muted-foreground)] border-b border-[var(--border)]">MEMBERS</div>
             {acMatches.map((m: any) => (
               <button key={m.id} onMouseDown={(e) => { e.preventDefault(); pickMention(m); }} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--muted)] text-left">
@@ -409,34 +442,37 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
             ))}
           </div>
         )}
-        <div className="flex items-end gap-2 rounded-[var(--radius)] border border-[var(--input-border)] bg-[var(--muted)] p-2">
-          <button title="Attach file" onClick={() => fileRef.current?.click()} className="h-8 w-8 rounded-[var(--radius-sm)] bg-[var(--card)] border border-[var(--border)] flex items-center justify-center hover:bg-[var(--background)] text-[var(--foreground)]">
-            <Paperclip className="h-4 w-4" />
-          </button>
-          <input ref={fileRef} type="file" className="hidden" onChange={handleFile} />
-          <textarea
-            value={input}
-            onChange={(e) => handleInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (ac.open && acMatches.length > 0 && (e.key === "Enter" || e.key === "Tab")) {
-                e.preventDefault();
-                pickMention(acMatches[0]);
-                return;
-              }
-              if (e.key === "Escape") setAc({ open: false, q: "" });
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder="Message… (@ to mention, Enter to send, Shift+Enter for new line)"
-            rows={1}
-            className="flex-1 bg-transparent outline-none text-sm resize-none max-h-24 py-2 placeholder:text-[var(--muted-foreground)]/60 text-[var(--foreground)]"
-          />
-          <Button onClick={send} disabled={uploading || (!input.trim() && attachments.length === 0)} className="rounded-[var(--radius-sm)]">
-            {uploading ? "…" : "Send"}
-          </Button>
-        </div>
+        <PromptInput onSubmit={handlePromptSubmit}>
+          <PromptInputBody>
+            <PromptInputTools>
+              <PromptInputButton title="Attach file" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                <Paperclip className="h-4 w-4" />
+              </PromptInputButton>
+              <input ref={fileRef} type="file" className="hidden" onChange={handleFile} />
+            </PromptInputTools>
+            <PromptInputTextarea
+              value={input}
+              onChange={(e) => handleInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (ac.open && acMatches.length > 0 && (e.key === "Enter" || e.key === "Tab")) {
+                  e.preventDefault();
+                  pickMention(acMatches[0]);
+                  return;
+                }
+                if (e.key === "Escape") setAc({ open: false, q: "" });
+              }}
+              placeholder="Message… (@ to mention, Enter to send, Shift+Enter for new line)"
+            />
+          </PromptInputBody>
+          <PromptInputFooter className="justify-end">
+            <PromptInputSubmit
+              disabled={uploading || (!input.trim() && attachments.length === 0)}
+              title="Send"
+            >
+              {uploading ? "…" : undefined}
+            </PromptInputSubmit>
+          </PromptInputFooter>
+        </PromptInput>
         <div className="mt-1 text-xs text-[var(--muted-foreground)] hidden sm:block">Markdown • @mention • images preview inline</div>
       </div>
     </div>

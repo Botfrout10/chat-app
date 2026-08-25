@@ -2,12 +2,16 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { RichText, AttachmentPreview } from "./RichText";
-import { BrainCircuit, CornerUpLeft, Pencil, Trash2 } from "lucide-react";
+import { BrainCircuit, CornerUpLeft, Pencil, ThumbsUp, Heart, Laugh, Trash2 } from "lucide-react";
+import { MessageResponse } from "@/components/ai-elements/message";
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
+import { MessageAction, MessageActions } from "@/components/ai-elements/message";
 
 type Msg = {
   id: string;
   content: string;
   reasoning?: string | null;
+  llmConnectionId?: string | null;
   senderId: string;
   sender?: { name: string; image?: string | null };
   createdAt: string;
@@ -28,6 +32,8 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
     acc[r.emoji] = (acc[r.emoji] ?? 0) + 1;
     return acc;
   }, {});
+  // assistant messages render as streaming markdown instead of mention-chip rich text
+  const isAi = !!msg.llmConnectionId;
 
   async function handleEdit() {
     if (!editContent.trim()) return;
@@ -56,8 +62,8 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
       onMouseLeave={() => setShowActions(false)}
       className={`group relative flex gap-3 px-4 py-2 hover:bg-[var(--muted)]/60 ${isOwn ? "bg-[var(--accent-50)] dark:bg-white/[0.03] border-l-2 border-[var(--accent-300)]" : "border-l-2 border-transparent"}`}
     >
-      <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] text-xs font-semibold shrink-0 shadow-[var(--shadow-soft)]">
-        {(msg.sender?.name ?? "?").slice(0, 2).toUpperCase()}
+      <div className={`h-8 w-8 rounded-full flex items-center justify-center text-[var(--primary-foreground)] shrink-0 shadow-[var(--shadow-soft)] bg-gradient-to-br ${isAi ? "from-[var(--accent)]" : "from-[var(--primary)]"} to-[var(--accent)]`}>
+        <span className="text-xs font-semibold">{(msg.sender?.name ?? "?").slice(0, 2).toUpperCase()}</span>
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
@@ -67,14 +73,14 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
         </div>
 
         {msg.reasoning ? (
-          <details className="mt-1 mb-1">
-            <summary className="cursor-pointer select-none text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] inline-flex items-center gap-1">
+          <Reasoning className="mt-1 mb-1 w-full max-w-full" defaultOpen={false}>
+            <ReasoningTrigger className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
               <BrainCircuit className="h-3.5 w-3.5" /> Thinking
-            </summary>
-            <div className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words border-l-2 border-[var(--border)] pl-3 text-xs text-[var(--muted-foreground)]">
+            </ReasoningTrigger>
+            <ReasoningContent className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-xs text-[var(--muted-foreground)]">
               {msg.reasoning}
-            </div>
-          </details>
+            </ReasoningContent>
+          </Reasoning>
         ) : null}
 
         {editing ? (
@@ -83,6 +89,8 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
             <button onClick={handleEdit} className="text-xs bg-[var(--primary)] text-[var(--primary-foreground)] px-3 py-1 rounded-[var(--radius-sm)]">Save</button>
             <button onClick={() => setEditing(false)} className="text-xs border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] px-3 py-1 rounded-[var(--radius-sm)]">Cancel</button>
           </div>
+        ) : isAi ? (
+          <MessageResponse className="text-sm break-words [&>*:first-child]:mt-0">{msg.content}</MessageResponse>
         ) : (
           <RichText content={msg.content} memberTokens={memberTokens ?? new Set()} meName={meName} />
         )}
@@ -99,6 +107,7 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
           <div className="mt-2 flex gap-1 flex-wrap">
             {Object.entries(groupedReactions).map(([emoji, count]) => (
               <button key={emoji} onClick={() => react(emoji)} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-xs hover:bg-[var(--muted)] text-[var(--foreground)]">
+                {/* reactions are emoji content, not UI chrome */}
                 <span>{emoji}</span><span className="text-[var(--muted-foreground)]">{count}</span>
               </button>
             ))}
@@ -122,18 +131,18 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
       </div>
 
       {showActions && !editing && (
-        <div className="absolute -top-3 right-4 flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-card)] px-1 py-1">
-          <button onClick={() => react("👍")} className="h-6 w-6 rounded-full hover:bg-[var(--muted)] text-xs">👍</button>
-          <button onClick={() => react("❤️")} className="h-6 w-6 rounded-full hover:bg-[var(--muted)] text-xs">❤️</button>
-          <button onClick={() => react("😂")} className="h-6 w-6 rounded-full hover:bg-[var(--muted)] text-xs">😂</button>
-          {onReply && <button title="Reply" onClick={() => onReply(msg.id)} className="h-6 w-6 rounded-full hover:bg-[var(--muted)] text-[var(--foreground)] flex items-center justify-center"><CornerUpLeft className="h-3.5 w-3.5" /></button>}
+        <MessageActions className="absolute -top-3 right-4 rounded-full border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-card)] px-1 py-1 z-10">
+          <MessageAction tooltip="Thumbs up" onClick={() => react("👍")}><ThumbsUp className="h-3.5 w-3.5" /></MessageAction>
+          <MessageAction tooltip="Heart" onClick={() => react("❤️")}><Heart className="h-3.5 w-3.5" /></MessageAction>
+          <MessageAction tooltip="Laugh" onClick={() => react("😂")}><Laugh className="h-3.5 w-3.5" /></MessageAction>
+          {onReply && <MessageAction tooltip="Reply" onClick={() => onReply(msg.id)}><CornerUpLeft className="h-3.5 w-3.5" /></MessageAction>}
           {isOwn && (
             <>
-              <button title="Edit" onClick={() => setEditing(true)} className="h-6 w-6 rounded-full hover:bg-[var(--muted)] text-[var(--foreground)] flex items-center justify-center"><Pencil className="h-3.5 w-3.5" /></button>
-              <button title="Delete" onClick={handleDelete} className="h-6 w-6 rounded-full hover:bg-red-50 dark:hover:bg-red-950/40 text-[var(--destructive)] flex items-center justify-center"><Trash2 className="h-3.5 w-3.5" /></button>
+              <MessageAction tooltip="Edit" onClick={() => setEditing(true)}><Pencil className="h-3.5 w-3.5" /></MessageAction>
+              <MessageAction tooltip="Delete" onClick={handleDelete} className="text-[var(--destructive)] hover:bg-red-50 dark:hover:bg-red-950/40"><Trash2 className="h-3.5 w-3.5" /></MessageAction>
             </>
           )}
-        </div>
+        </MessageActions>
       )}
     </div>
   );
