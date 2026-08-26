@@ -211,7 +211,7 @@ export function CommandPalette() {
             <Keyboard className="h-3.5 w-3.5" /> Open palette <CommandShortcut>Ctrl P / ⌘K</CommandShortcut>
           </CommandItem>
           <CommandItem disabled value="kb-sidebar-hide" className="opacity-80">
-            <PanelLeftClose className="h-3.5 w-3.5" /> Hide / collapse sidebar <CommandShortcut>Ctrl B</CommandShortcut>
+            <PanelLeftClose className="h-3.5 w-3.5" /> Hide / show sidebar <CommandShortcut>Ctrl B</CommandShortcut>
           </CommandItem>
           <CommandItem disabled value="kb-send" className="opacity-80">
             <CornerDownLeft className="h-3.5 w-3.5" /> Send message <CommandShortcut>Enter</CommandShortcut>

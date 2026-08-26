@@ -25,8 +25,6 @@ type State = {
   dialog: UiDialog | null;
   /** command palette open */
   paletteOpen: boolean;
-  /** sidebar collapsed to an icon rail */
-  sidebarCollapsed: boolean;
   /** sidebar completely hidden — main area takes the full width */
   sidebarHidden: boolean;
   /** per-section collapse inside the sidebar */
@@ -34,19 +32,18 @@ type State = {
   openDialog: (d: UiDialog) => void;
   closeDialog: () => void;
   setPaletteOpen: (open: boolean) => void;
-  /** cycle: expanded → rail → hidden → expanded */
+  /** toggle the sidebar between expanded and hidden (Ctrl/Cmd+B) */
   toggleSidebar: () => void;
-  /** leave hidden state (back to previous collapsed/expanded) */
+  /** show the sidebar (leave hidden state) */
   showSidebar: () => void;
-  /** expand/collapse without touching hidden */
-  setSidebarCollapsed: (v: boolean) => void;
+  /** hide the sidebar */
+  hideSidebar: () => void;
   toggleSection: (s: SidebarSection) => void;
 };
 
 export const useUiStore = create<State>((set, get) => ({
   dialog: null,
   paletteOpen: false,
-  sidebarCollapsed: loadBool("pulse.sidebar.collapsed", false),
   sidebarHidden: loadBool("pulse.sidebar.hidden", false),
   sidebarSections: {
     channels: loadBool("pulse.sidebar.sec.channels", false),
@@ -57,25 +54,17 @@ export const useUiStore = create<State>((set, get) => ({
   closeDialog: () => set({ dialog: null }),
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
   toggleSidebar: () => {
-    const s = get();
-    if (s.sidebarHidden) {
-      persist("pulse.sidebar.hidden", false);
-      set({ sidebarHidden: false });
-    } else if (s.sidebarCollapsed) {
-      persist("pulse.sidebar.hidden", true);
-      set({ sidebarHidden: true });
-    } else {
-      persist("pulse.sidebar.collapsed", true);
-      set({ sidebarCollapsed: true });
-    }
+    const hidden = !get().sidebarHidden;
+    persist("pulse.sidebar.hidden", hidden);
+    set({ sidebarHidden: hidden });
   },
   showSidebar: () => {
     persist("pulse.sidebar.hidden", false);
     set({ sidebarHidden: false });
   },
-  setSidebarCollapsed: (v) => {
-    persist("pulse.sidebar.collapsed", v);
-    set({ sidebarCollapsed: v });
+  hideSidebar: () => {
+    persist("pulse.sidebar.hidden", true);
+    set({ sidebarHidden: true });
   },
   toggleSection: (s) => {
     const sidebarSections = { ...get().sidebarSections, [s]: !get().sidebarSections[s] };
