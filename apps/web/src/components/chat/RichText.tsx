@@ -13,8 +13,17 @@ function fmtSize(n?: number) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function MentionChip({ token, isMe, isKnown }: { token: string; isMe: boolean; isKnown: boolean }) {
+function MentionChip({ token, isMe, isKnown, inverted }: { token: string; isMe: boolean; isKnown: boolean; inverted?: boolean }) {
   const base = "rounded px-1 font-medium";
+  // inside own primary bubble the palette flips: light chips on teal
+  if (inverted) {
+    const inv = isMe
+      ? `${base} bg-[var(--primary-foreground)] text-[var(--primary)]`
+      : isKnown
+        ? `${base} bg-white/25 text-[var(--primary-foreground)]`
+        : `${base} bg-white/10 text-[var(--primary-foreground)]/85`;
+    return <span className={inv}>{token}</span>;
+  }
   const cls = isMe
     ? `${base} bg-[var(--primary)] text-[var(--primary-foreground)]`
     : isKnown
@@ -47,7 +56,7 @@ const mdComponents = {
   td: ({ children }: any) => <td className="border border-[var(--border)] px-2 py-1">{children}</td>,
 };
 
-export function RichText({ content, memberTokens, meName }: { content: string; memberTokens: Set<string>; meName?: string }) {
+export function RichText({ content, memberTokens, meName, inverted }: { content: string; memberTokens: Set<string>; meName?: string; inverted?: boolean }) {
   const parts = content.split(SPLIT);
   return (
     <div className="text-sm leading-relaxed break-words">
@@ -57,7 +66,7 @@ export function RichText({ content, memberTokens, meName }: { content: string; m
           const name = part.slice(1);
           const isKnown = memberTokens.has(name.toLowerCase());
           const isMe = !!meName && name.toLowerCase() === meName.toLowerCase();
-          return <MentionChip key={i} token={part} isMe={isMe} isKnown={isKnown} />;
+          return <MentionChip key={i} token={part} isMe={isMe} isKnown={isKnown} inverted={inverted} />;
         }
         if (!part) return null;
         return (

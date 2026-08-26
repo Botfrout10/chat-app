@@ -115,7 +115,7 @@ export function MessageItem({ msg, onReply, isOwn, meId, memberTokens, meName, r
           ) : isAi ? (
             <MessageResponse className="break-words [&>*:first-child]:mt-0">{msg.content}</MessageResponse>
           ) : (
-            <RichText content={msg.content} memberTokens={memberTokens ?? new Set()} meName={meName} />
+            <RichText content={msg.content} memberTokens={memberTokens ?? new Set()} meName={meName} inverted={isOwn} />
           )}
 
           {msg.attachments && msg.attachments.length > 0 && (
@@ -135,13 +135,18 @@ export function MessageItem({ msg, onReply, isOwn, meId, memberTokens, meName, r
                   aria-pressed={byMe}
                   title={byMe ? "Click to remove your reaction" : "React"}
                   className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${
-                    byMe
-                      ? "border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary)] font-semibold"
-                      : "border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)]"
+                    isOwn
+                      ? // inside own primary bubble: light pills for contrast on teal
+                        byMe
+                          ? "border-white/60 bg-white/25 text-[var(--primary-foreground)] font-semibold"
+                          : "border-white/30 bg-white/10 text-[var(--primary-foreground)]/90 hover:bg-white/20"
+                      : byMe
+                        ? "border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary)] font-semibold"
+                        : "border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)]"
                   }`}
                 >
                   {/* reactions are emoji content, not UI chrome */}
-                  <span>{emoji}</span><span className={byMe ? "" : "text-[var(--muted-foreground)]"}>{count}</span>
+                  <span>{emoji}</span><span className={byMe || isOwn ? "" : "text-[var(--muted-foreground)]"}>{count}</span>
                 </button>
               ))}
             </div>
