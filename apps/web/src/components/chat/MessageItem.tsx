@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { RichText, AttachmentPreview } from "./RichText";
 import { BrainCircuit, CornerUpLeft, Pencil, ThumbsUp, Heart, Laugh, Trash2 } from "lucide-react";
@@ -27,16 +27,22 @@ type Msg = {
   attachments?: { key: string; filename: string; mime?: string; size?: number }[];
 };
 
-export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy }: { msg: Msg; onReply?: (id: string) => void; isOwn?: boolean; memberTokens?: Set<string>; meName?: string; readBy?: { id: string; name: string; image?: string | null }[] }) {
+export function MessageItem({ msg, onReply, isOwn, meId, memberTokens, meName, readBy }: { msg: Msg; onReply?: (id: string) => void; isOwn?: boolean; meId?: string | null; memberTokens?: Set<string>; meName?: string; readBy?: { id: string; name: string; image?: string | null }[] }) {
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
   const [showActions, setShowActions] = useState(false);
 
   const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const groupedReactions = (msg.reactions ?? []).reduce<Record<string, number>>((acc, r) => {
-    acc[r.emoji] = (acc[r.emoji] ?? 0) + 1;
-    return acc;
-  }, {});
+  const groupedReactions = useMemo(() => {
+    const map = new Map<string, { count: number; byMe: boolean }>();
+    for (const r of msg.reactions ?? []) {
+      const cur = map.get(r.emoji) ?? { count: 0, byMe: false };
+      cur.count += 1;
+      if (meId && r.userId === meId) cur.byMe = true;
+      map.set(r.emoji, cur);
+    }
+    return [...map.entries()];
+  }, [msg.reactions, meId]);
   // assistant messages render as streaming markdown instead of mention-chip rich text
   const isAi = !!msg.llmConnectionId;
 
@@ -51,8 +57,13 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
     await api.deleteMessage(msg.id);
   }
 
-  async function react(emoji: string) {
-    await api.react(msg.id, emoji);
+  async function toggleReaction(emoji: string, byMe: boolean) {
+    try {
+      if (byMe) await api.unreact(msg.id, emoji);
+      else await api.react(msg.id, emoji);
+    } catch {
+      // idempotent on the server — refetch to resync on failure
+    }
   }
 
   if (msg.deletedAt) {
@@ -115,12 +126,22 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
             </div>
           )}
 
-          {Object.keys(groupedReactions).length > 0 && (
+          {groupedReactions.length > 0 && (
             <div className="mt-1.5 flex gap-1 flex-wrap">
-              {Object.entries(groupedReactions).map(([emoji, count]) => (
-                <button key={emoji} onClick={() => react(emoji)} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-xs hover:bg-[var(--muted)] text-[var(--foreground)]">
+              {groupedReactions.map(([emoji, { count, byMe }]) => (
+                <button
+                  key={emoji}
+                  onClick={() => toggleReaction(emoji, byMe)}
+                  aria-pressed={byMe}
+                  title={byMe ? "Click to remove your reaction" : "React"}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${
+                    byMe
+                      ? "border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary)] font-semibold"
+                      : "border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)]"
+                  }`}
+                >
                   {/* reactions are emoji content, not UI chrome */}
-                  <span>{emoji}</span><span className="text-[var(--muted-foreground)]">{count}</span>
+                  <span>{emoji}</span><span className={byMe ? "" : "text-[var(--muted-foreground)]"}>{count}</span>
                 </button>
               ))}
             </div>
@@ -145,9 +166,9 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
 
       {showActions && !editing && (
         <MessageActions className="absolute -top-3 right-4 rounded-full border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-card)] px-1 py-1 z-10">
-          <MessageAction tooltip="Thumbs up" onClick={() => react("👍")}><ThumbsUp className="h-3.5 w-3.5" /></MessageAction>
-          <MessageAction tooltip="Heart" onClick={() => react("❤️")}><Heart className="h-3.5 w-3.5" /></MessageAction>
-          <MessageAction tooltip="Laugh" onClick={() => react("😂")}><Laugh className="h-3.5 w-3.5" /></MessageAction>
+          <MessageAction tooltip="Thumbs up" onClick={() => toggleReaction("👍", groupedReactions.find(([e]) => e === "👍")?.[1].byMe ?? false)}><ThumbsUp className="h-3.5 w-3.5" /></MessageAction>
+          <MessageAction tooltip="Heart" onClick={() => toggleReaction("❤️", groupedReactions.find(([e]) => e === "❤️")?.[1].byMe ?? false)}><Heart className="h-3.5 w-3.5" /></MessageAction>
+          <MessageAction tooltip="Laugh" onClick={() => toggleReaction("😂", groupedReactions.find(([e]) => e === "😂")?.[1].byMe ?? false)}><Laugh className="h-3.5 w-3.5" /></MessageAction>
           {onReply && <MessageAction tooltip="Reply" onClick={() => onReply(msg.id)}><CornerUpLeft className="h-3.5 w-3.5" /></MessageAction>}
           {isOwn && (
             <>

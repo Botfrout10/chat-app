@@ -92,9 +92,9 @@ export function AttachmentPreview({ att }: { att: { key: string; filename: strin
 function ImageThumb({ url, alt }: { url: string; alt: string }) {
   const { open } = useLightbox();
   return (
-    <button type="button" onClick={() => open(url, alt)} className="inline-block rounded-xl overflow-hidden border border-[var(--border)] hover:opacity-90 transition-opacity">
+    <button type="button" onClick={() => open(url, alt)} className="inline-block max-w-[320px] rounded-xl overflow-hidden border border-[var(--border)] hover:opacity-90 transition-opacity">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={url} alt={alt} className="max-h-64 max-w-full object-cover" />
+      <img src={url} alt={alt} className="max-h-56 w-auto max-w-full object-cover" />
     </button>
   );
 }
