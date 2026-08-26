@@ -30,10 +30,10 @@ Cool mist base with deep petrol ink and teal primary.
 | `--accent` | `#06b6d4` | Cyan accent chip, links in sidebar |
 | `--accent-foreground` | `#08252b` | Text on accent |
 | `--destructive` | `#be123c` | Delete / error states |
-| `--sidebar` | `#081413` | Workspace rail (deep petrol) |
-| `--sidebar-foreground` | `#e6f2ef` | Rail text |
-| `--sidebar-muted` | `#0f201e` | Channel list bg |
-| `--sidebar-border` | `#16302d` | Sidebar divider |
+| `--sidebar` | `#ffffff` | Sidebar surface (light mode — flipped from petrol in polish round 2) |
+| `--sidebar-foreground` | `#0c1a19` | Sidebar text |
+| `--sidebar-muted` | `#eef3f2` | Channel list bg |
+| `--sidebar-border` | `#dde6e5` | Sidebar divider |
 | `--success` | `#10b981` | Online dot |
 | `--warning` | `#d97706` | Typing |
 
@@ -124,17 +124,17 @@ Change any hex → entire app updates. No hard-coded colors in components; use m
 ```
 Header (56px, bg-card, border-b) — hidden actions when authed: shows user avatar + sign out
 └─ Body (flex, min-h 0)
-   ├─ App Sidebar (260px, bg-sidebar-muted, hidden <md)
+   ├─ App Sidebar (260px ↔ 56px icon rail, bg-sidebar-muted, collapsible via Ctrl/Cmd+B, hidden <md)
    │   ├─ Workspace switcher (dropdown w/ initials tile + name; create/invite actions)
-   │   ├─ Notifications bell (Popover) · Search button (opens ⌘P palette)
-   │   ├─ CHANNELS section (channels only — Hash/Lock icons, unread dots)
-   │   ├─ DIRECT MESSAGES section (avatars + presence dots)
-   │   ├─ AI MODELS section (Sparkles avatars + status dots)
-   │   └─ Account footer (dropdown: switch / sign out)
+   │   ├─ Collapse toggle · Notifications bell (Popover) · Search button (opens ⌘P palette)
+   │   ├─ CHANNELS section (channels only — Hash/Lock icons, unread dots; collapsible)
+   │   ├─ DIRECT MESSAGES section (avatars + presence dots; collapsible)
+   │   ├─ AI MODELS section (Sparkles avatars + status dots; collapsible)
+   │   └─ Account footer (dropdown: theme toggle / switch / sign out)
    └─ ChannelView (flex-1, bg-background)
-      ├─ Header (56px, sticky)
+      ├─ Header (56px, sticky; Context hover card on AI-model chats)
       ├─ Conversation (AI Elements, stick-to-bottom scroll + jump-to-bottom button)
-      └─ PromptInput composer (sticky bottom, bg-card, border-t)
+      └─ PromptInput composer (preset: attachments header → textarea → footer attach-menu + submit)
 ```
 
 The old 64px workspace icon rail is **gone** — workspaces live in the sidebar header dropdown.
@@ -165,10 +165,12 @@ UI primitives are **real shadcn/ui** (radix-nova preset, initialized in `apps/we
 
 ### MessageItem
 - Avatar: `bg-gradient-to-br from-[var(--primary)] to-[var(--accent)]` (teal-to-cyan), 32px, initials.
-- Hover: `bg-muted/60`
-- Own: `bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)]` subtle mint wash + `--accent-300` left border.
+- Own messages: AI Elements `Message from="user"` → right-aligned `bg-primary`/`text-primary-foreground` bubble; reactions + mention chips flip to light-on-teal variants (`bg-white/25` etc.) inside own bubbles.
+- Others: left, plain text on background; hover `bg-muted/60`.
+- Reactions: pill toggles (by-me → `api.unreact`); by-me pill `border-primary bg-primary/15 text-primary`; neutral pill `border-border bg-card`.
+- Mentions: me → `bg-primary text-primary-foreground`; known → `accent-100/accent-700` (dark `teal-900/40`); unknown → muted.
 - Actions pill: `bg-card border-border shadow-card`
-- Reactions: `border-border bg-card hover:bg-muted` pill, `text-muted-foreground` count.
+- Attachments: images capped at `max-w-[320px] max-h-56`, click → lightbox.
 - Deleted: italic `text-muted-foreground`.
 
 ### AppShell
