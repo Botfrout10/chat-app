@@ -43,6 +43,45 @@ export function AppShell() {
   useEffect(() => { if (meId) connectSocket(); }, [meId]);
   usePresenceSync(!!meId);
 
+  // global LLM stream listeners — keyed by channel in the store so a stream
+  // keeps accumulating even while the user is looking at another channel
+  useEffect(() => {
+    const s = connectSocket();
+    const st = () => useChatStore.getState();
+    const onTyping = (p: any) => {
+      if (!p.channelId) return;
+      st().setLlmTyping(p.channelId, p.isTyping ? p.connectionId : null);
+      if (p.isTyping) st().startLlmStream(p.channelId, p.connectionId);
+    };
+    const onThinking = (p: any) => {
+      if (p.channelId && p.delta) st().appendLlmThinking(p.channelId, p.connectionId, p.delta);
+    };
+    const onDelta = (p: any) => {
+      if (p.channelId && p.delta) st().appendLlmText(p.channelId, p.connectionId, p.delta);
+    };
+    const onError = (p: any) => {
+      if (p.channelId) st().clearLlmStream(p.channelId);
+    };
+    const onNew = (msg: any) => {
+      // final LLM reply arrived — drop that channel's live stream placeholder
+      if (msg?.llmConnectionId) st().clearLlmStreamByConnection(msg.llmConnectionId);
+    };
+    s.on("llm:typing", onTyping);
+    s.on("llm:thinking", onThinking);
+    s.on("llm:delta", onDelta);
+    s.on("llm:error", onError);
+    s.on("message:new", onNew);
+    s.on("message", onNew);
+    return () => {
+      s.off("llm:typing", onTyping);
+      s.off("llm:thinking", onThinking);
+      s.off("llm:delta", onDelta);
+      s.off("llm:error", onError);
+      s.off("message:new", onNew);
+      s.off("message", onNew);
+    };
+  }, []);
+
   if (!meId) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[var(--muted)] p-4">

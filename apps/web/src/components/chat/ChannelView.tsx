@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { getSocket, connectSocket } from "@/lib/socket";
+import { useChatStore } from "@/store/chat";
 import { MessageItem } from "./MessageItem";
 import { Button } from "@/components/ui/button";
 import { AtSign, BrainCircuit, CornerDownLeft, Hash, Sparkles } from "lucide-react";
@@ -21,6 +22,15 @@ import {
 } from "@/components/ai-elements/message";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Shimmer } from "@/components/ai-elements/shimmer";
+import {
+  Context,
+  ContextContent,
+  ContextContentBody,
+  ContextContentFooter,
+  ContextContentHeader,
+  ContextInputUsage,
+  ContextTrigger,
+} from "@/components/ai-elements/context";
 import {
   PromptInput,
   PromptInputActionAddAttachments,
@@ -91,7 +101,7 @@ function ChatComposer({
         <PromptInputTools>
           <PromptInputActionMenu>
             <PromptInputActionMenuTrigger title="Attach files" />
-            <PromptInputActionMenuContent>
+            <PromptInputActionMenuContent side="top" align="start">
               <PromptInputActionAddAttachments />
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
@@ -153,8 +163,8 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     for (const c of (llmConnections as any[]) ?? []) map.set(c.id, c.label);
     return map;
   }, [llmConnections]);
-  const [stream, setStream] = useState<{ connectionId: string; text: string; thinking: string } | null>(null);
-  const [llmTyping, setLlmTyping] = useState<string | null>(null); // connectionId
+  // live stream lives in the global store — survives switching channels mid-generation
+  const stream = useChatStore((s) => s.llmStreams[channelId] ?? null);
 
   useEffect(() => {
     const s = connectSocket();
@@ -173,8 +183,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       qc.setQueryData(["messages", channelId], (old: any) => upsert(old, msg));
       // final LLM reply arrived — drop the streaming placeholder
       if (msg?.llmConnectionId) {
-        setStream((cur) => (cur?.connectionId === msg.llmConnectionId ? null : cur));
-        setLlmTyping((cur) => (cur === msg.llmConnectionId ? null : cur));
+        useChatStore.getState().clearLlmStreamByConnection(msg.llmConnectionId);
       }
       // auto-mark read when in view and at bottom (StickToBottom pins us there)
       if (meId && isAtBottomRef.current && msg?.id) {
@@ -211,44 +220,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   }, [channelId, qc, meId]);
 
   const [typing, setTyping] = useState<string[]>([]);
-  useEffect(() => {
-    const s = getSocket();
-    // LLM streaming: typing → deltas → final message (handled in onNew above)
-    const onLlmTyping = (p: any) => {
-      if (p.channelId !== channelId) return;
-      setLlmTyping(p.isTyping ? p.connectionId : null);
-      if (!p.isTyping) return;
-      setStream({ connectionId: p.connectionId, text: "", thinking: "" });
-    };
-    const onLlmThinking = (p: any) => {
-      if (p.channelId !== channelId || !p.delta) return;
-      setStream((cur) =>
-        cur && cur.connectionId === p.connectionId ? { ...cur, thinking: cur.thinking + p.delta } : cur,
-      );
-    };
-    const onLlmDelta = (p: any) => {
-      if (p.channelId !== channelId || !p.delta) return;
-      setStream((cur) =>
-        cur && cur.connectionId === p.connectionId ? { ...cur, text: cur.text + p.delta } : cur,
-      );
-    };
-    const onLlmError = (p: any) => {
-      if (p.channelId !== channelId) return;
-      setLlmTyping(null);
-      setStream((cur) => (cur?.connectionId === p.connectionId ? null : cur));
-    };
-    s.on("llm:typing", onLlmTyping);
-    s.on("llm:thinking", onLlmThinking);
-    s.on("llm:delta", onLlmDelta);
-    s.on("llm:error", onLlmError);
-    return () => {
-      s.off("llm:typing", onLlmTyping);
-      s.off("llm:thinking", onLlmThinking);
-      s.off("llm:delta", onLlmDelta);
-      s.off("llm:error", onLlmError);
-    };
-  }, [channelId]);
-
   useEffect(() => {
     const s = getSocket();
     const handler = (p: any) => {
@@ -406,10 +377,16 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     return m;
   }, [channelMembers, meId]);
 
+  // rough context-window estimate for AI-model chats (~4 chars/token)
+  const estContextTokens = useMemo(() => {
+    const chars = allMessages.reduce((n: number, m: any) => n + String(m.content ?? "").length, 0);
+    return Math.ceil(chars / 4) + allMessages.length * 4;
+  }, [allMessages]);
+
   if (isLoading) return <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading messages…</div>;
 
   const isDm = channel?.type === "dm";
-  const title = isDm ? `@${channel?.dmPeer?.name ?? "direct message"}` : `#${channel?.name ?? channelId.slice(0, 8)}`;
+  const title = isDm ? `${channel?.dmPeer?.name ?? "direct message"}` : `${channel?.name ?? channelId.slice(0, 8)}`;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--background)]">
@@ -420,6 +397,30 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           <span className="text-xs text-[var(--muted-foreground)]">{allMessages.length} messages</span>
         </div>
         <div className="flex items-center gap-2">
+          {channel?.llmConnectionId && (
+            <Context
+              usedTokens={estContextTokens}
+              maxTokens={8192}
+              usage={{
+                inputTokens: estContextTokens,
+                inputTokenDetails: { noCacheTokens: estContextTokens, cacheReadTokens: 0, cacheWriteTokens: 0 },
+                outputTokens: 0,
+                outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+                totalTokens: estContextTokens,
+              }}
+            >
+              <ContextTrigger />
+              <ContextContent align="end">
+                <ContextContentHeader />
+                <ContextContentBody>
+                  <ContextInputUsage />
+                </ContextContentBody>
+                <ContextContentFooter className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
+                  Context estimate (~4 chars/token). Actual window depends on the provider model.
+                </ContextContentFooter>
+              </ContextContent>
+            </Context>
+          )}
           {hasNextPage && (
             <Button variant="ghost" size="sm" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
               {isFetchingNextPage ? "Loading…" : "Load older"}
@@ -443,7 +444,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
             />
           ) : (
             allMessages.map((m: any) => (
-              <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={meId === m.senderId} memberTokens={memberTokens} meName={meName} readBy={readByMap.get(m.id) ?? []} />
+              <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={meId === m.senderId} meId={meId} memberTokens={memberTokens} meName={meName} readBy={readByMap.get(m.id) ?? []} />
             ))
           )}
 
