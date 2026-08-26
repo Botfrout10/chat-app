@@ -128,18 +128,6 @@ export function AppSidebar() {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const { resolvedTheme, setTheme } = useTheme();
 
-  // Ctrl/Cmd+B toggles the sidebar (hide / show)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
-        e.preventDefault();
-        useUiStore.getState().toggleSidebar();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: () => api.me().catch(() => null) });
 
   // members for DM list

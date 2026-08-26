@@ -1,11 +1,11 @@
 "use client";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useUiStore } from "@/store/ui";
 import { PanelLeftOpen, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { connectSocket } from "@/lib/socket";
 import { useChatStore } from "@/store/chat";
-import { useUiStore } from "@/store/ui";
 import { usePresenceSync } from "@/hooks/useChatActions";
 import { Button } from "@/components/ui/button";
 import { AppSidebar } from "./AppSidebar";
@@ -21,6 +21,19 @@ export function AppShell() {
   const channels = useChatStore((s) => s.channels);
   const sidebarHidden = useUiStore((s) => s.sidebarHidden);
   const showSidebar = useUiStore((s) => s.showSidebar);
+
+  // Ctrl/Cmd+B toggles the sidebar — lives here so it works even when the
+  // sidebar is hidden and <AppSidebar /> isn't mounted.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        useUiStore.getState().toggleSidebar();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: () => api.me().catch(() => null) });
   const meId = (me as any)?.id as string | undefined;
