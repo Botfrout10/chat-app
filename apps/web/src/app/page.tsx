@@ -34,11 +34,19 @@ export default function Home() {
   });
   const isAuthed = !!(me as any)?.id;
 
-  return (
-    <div className="flex flex-col flex-1 h-dvh overflow-hidden bg-[var(--background)]">
+  // Authed: fixed full-viewport app frame — immune to document flow, composer stays pinned.
+  if (isAuthed) {
+    return (
+      <div className="fixed inset-0 z-10 flex overflow-hidden bg-[var(--background)]">
+        <AppShell />
+      </div>
+    );
+  }
 
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        <div className={`flex-1 grid min-h-0 overflow-hidden ${isAuthed ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-[420px_1fr]"}`}>
+  return (
+    <div className="flex min-h-dvh flex-col bg-[var(--background)]">
+      <div className="flex-1 flex">
+        <div className={`flex-1 grid ${"grid-cols-1 lg:grid-cols-[420px_1fr]"}`}>
           {!isAuthed && (
             <div className="hidden lg:flex flex-col p-6 gap-6 bg-gradient-to-br from-[#04211f] via-[#0a3d38] to-[#0f766e] text-white relative overflow-hidden">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(45,212,191,0.16),transparent_55%)]" />

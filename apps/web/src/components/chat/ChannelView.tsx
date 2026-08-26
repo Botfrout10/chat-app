@@ -5,7 +5,8 @@ import { api } from "@/lib/api";
 import { getSocket, connectSocket } from "@/lib/socket";
 import { MessageItem } from "./MessageItem";
 import { Button } from "@/components/ui/button";
-import { AtSign, BrainCircuit, CornerDownLeft, FileText, Hash, Paperclip, Sparkles, X } from "lucide-react";
+import { AtSign, BrainCircuit, CornerDownLeft, Hash, Sparkles } from "lucide-react";
+import type { FileUIPart } from "ai";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import {
   Conversation,
@@ -13,20 +14,93 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import { Message, MessageResponse } from "@/components/ai-elements/message";
+import { Attachments, Attachment, AttachmentPreview, AttachmentRemove } from "@/components/ai-elements/attachments";
+import {
+  Message,
+  MessageResponse,
+} from "@/components/ai-elements/message";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import {
   PromptInput,
+  PromptInputActionAddAttachments,
+  PromptInputActionMenu,
+  PromptInputActionMenuContent,
+  PromptInputActionMenuTrigger,
   PromptInputBody,
-  PromptInputButton,
   PromptInputFooter,
+  PromptInputHeader,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
+  usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
 
 type Props = { channelId: string; workspaceId?: string; channel?: any };
+
+/** Inline chips for files staged in the PromptInput attachment context. */
+function PromptInputAttachmentsDisplay() {
+  const attachments = usePromptInputAttachments();
+  if (attachments.files.length === 0) return null;
+  return (
+    <Attachments variant="inline">
+      {attachments.files.map((a) => (
+        <Attachment data={a} key={a.id} onRemove={() => attachments.remove(a.id)}>
+          <AttachmentPreview />
+          <AttachmentRemove />
+        </Attachment>
+      ))}
+    </Attachments>
+  );
+}
+
+/** Preset-composed composer: attachments header, textarea, footer w/ attach menu + submit. */
+function ChatComposer({
+  value, onValueChange, onKeyDown, onSubmit, replyTo, onCancelReply, busy,
+}: {
+  value: string;
+  onValueChange: (v: string) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onSubmit: (m: { text: string; files: FileUIPart[] }) => void | Promise<void>;
+  replyTo: string | null;
+  onCancelReply: () => void;
+  busy: boolean;
+}) {
+  return (
+    <PromptInput onSubmit={onSubmit} multiple globalDrop>
+      {replyTo && (
+        <PromptInputHeader>
+          <div className="flex w-full items-center gap-1 text-xs text-[var(--primary)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2">
+            <CornerDownLeft className="h-3 w-3 shrink-0" /> Replying to {replyTo.slice(0, 8)}
+            <button onClick={onCancelReply} className="ml-auto underline">cancel</button>
+          </div>
+        </PromptInputHeader>
+      )}
+      <PromptInputHeader>
+        <PromptInputAttachmentsDisplay />
+      </PromptInputHeader>
+      <PromptInputBody>
+        <PromptInputTextarea
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Message… (@ to mention, Enter to send, Shift+Enter for new line)"
+        />
+      </PromptInputBody>
+      <PromptInputFooter>
+        <PromptInputTools>
+          <PromptInputActionMenu>
+            <PromptInputActionMenuTrigger title="Attach files" />
+            <PromptInputActionMenuContent>
+              <PromptInputActionAddAttachments />
+            </PromptInputActionMenuContent>
+          </PromptInputActionMenu>
+        </PromptInputTools>
+        <PromptInputSubmit disabled={busy} title="Send" />
+      </PromptInputFooter>
+    </PromptInput>
+  );
+}
 
 /** Keeps a ref in sync with "is the conversation pinned to bottom" (for read receipts). */
 function AtBottomSync({ isAtBottomRef }: { isAtBottomRef: React.MutableRefObject<boolean> }) {
@@ -42,8 +116,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   const [input, setInput] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [attachments, setAttachments] = useState<{ key: string; filename: string; mime: string; size: number; url: string }[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useInfiniteQuery({
     queryKey: ["messages", channelId],
@@ -273,38 +345,25 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     setAc({ open: false, q: "" });
   }
 
-  async function uploadFile(file: File): Promise<{ key: string; filename: string; mime: string; size: number }> {
-    const presigned: any = await api.presign({ filename: file.name, mime: file.type || "application/octet-stream", size: file.size });
-    await fetch(presigned.url, { method: "PUT", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
-    return { key: presigned.key, filename: presigned.filename, mime: presigned.mime, size: presigned.size };
+  /** Upload a staged attachment part (data URL) via presigned PUT. */
+  async function uploadAttachmentPart(part: FileUIPart) {
+    const blob = await (await fetch(part.url!)).blob();
+    const mime = part.mediaType || blob.type || "application/octet-stream";
+    const filename = part.filename || "attachment";
+    const presigned: any = await api.presign({ filename, mime, size: blob.size });
+    await fetch(presigned.url, { method: "PUT", body: blob, headers: { "Content-Type": mime } });
+    return { key: presigned.key as string, filename: presigned.filename as string, mime: presigned.mime as string, size: presigned.size as number };
   }
 
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const att = await uploadFile(file);
-      setAttachments((k) => [...k, { ...att, url: "" }]);
-    } catch (err) {
-      alert("Upload failed: " + (err as Error).message);
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
-
-  async function send(textOverride?: string) {
+  async function send(textOverride?: string, atts: { key: string; filename: string; mime: string; size: number }[] = []) {
     const text = textOverride ?? input;
-    if (!text.trim() && attachments.length === 0) return;
+    if (!text.trim() && atts.length === 0) return;
     const content = text.trim() || "(attachment)";
     const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const parentAtSend = replyTo;
     setInput("");
     setReplyTo(null);
     setAc({ open: false, q: "" });
-    const atts = attachments.map(({ key, filename, mime, size }) => ({ key, filename, mime, size }));
-    setAttachments([]);
     try {
       const saved: any = await api.sendMessage(channelId, { content, parentId: parentAtSend, attachments: atts, nonce });
       // show instantly — don't wait for the socket echo
@@ -321,8 +380,18 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     }
   }
 
-  async function handlePromptSubmit({ text }: { text: string }) {
-    await send(text);
+  async function handlePromptSubmit({ text, files }: { text: string; files: FileUIPart[] }) {
+    if (!text.trim() && files.length === 0) return;
+    setUploading(true);
+    try {
+      const atts = [];
+      for (const f of files) atts.push(await uploadAttachmentPart(f));
+      await send(text, atts);
+    } catch (e) {
+      alert("Upload failed: " + (e as Error).message);
+    } finally {
+      setUploading(false);
+    }
   }
 
   // NOTE: must stay above any early return — all hooks run unconditionally
@@ -410,22 +479,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       </Conversation>
 
       <div className="relative border-t border-[var(--border)] p-3 bg-[var(--card)] shrink-0 w-full">
-        {replyTo && (
-          <div className="mb-2 text-xs text-[var(--primary)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2 flex items-center gap-1">
-            <CornerDownLeft className="h-3 w-3" /> Replying to {replyTo.slice(0, 8)}
-            <button onClick={() => setReplyTo(null)} className="ml-2 underline">cancel</button>
-          </div>
-        )}
-        {attachments.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {attachments.map((a) => (
-              <span key={a.key} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-1 text-xs text-[var(--foreground)]">
-                <FileText className="h-3.5 w-3.5" /> {a.filename}
-                <button title="Remove attachment" onClick={() => setAttachments((k) => k.filter((x) => x.key !== a.key))} className="ml-1 text-[var(--muted-foreground)] hover:text-[var(--destructive)]"><X className="h-3.5 w-3.5" /></button>
-              </span>
-            ))}
-          </div>
-        )}
         {ac.open && acMatches.length > 0 && (
           <div className="absolute bottom-full left-3 right-3 mb-2 rounded-xl border border-[var(--border)] bg-popover shadow-[var(--shadow-card)] overflow-hidden z-10">
             <div className="px-3 py-1.5 text-xs font-semibold tracking-widest text-[var(--muted-foreground)] border-b border-[var(--border)]">MEMBERS</div>
@@ -442,37 +495,22 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
             ))}
           </div>
         )}
-        <PromptInput onSubmit={handlePromptSubmit}>
-          <PromptInputBody>
-            <PromptInputTools>
-              <PromptInputButton title="Attach file" onClick={() => fileRef.current?.click()} disabled={uploading}>
-                <Paperclip className="h-4 w-4" />
-              </PromptInputButton>
-              <input ref={fileRef} type="file" className="hidden" onChange={handleFile} />
-            </PromptInputTools>
-            <PromptInputTextarea
-              value={input}
-              onChange={(e) => handleInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (ac.open && acMatches.length > 0 && (e.key === "Enter" || e.key === "Tab")) {
-                  e.preventDefault();
-                  pickMention(acMatches[0]);
-                  return;
-                }
-                if (e.key === "Escape") setAc({ open: false, q: "" });
-              }}
-              placeholder="Message… (@ to mention, Enter to send, Shift+Enter for new line)"
-            />
-          </PromptInputBody>
-          <PromptInputFooter className="justify-end">
-            <PromptInputSubmit
-              disabled={uploading || (!input.trim() && attachments.length === 0)}
-              title="Send"
-            >
-              {uploading ? "…" : undefined}
-            </PromptInputSubmit>
-          </PromptInputFooter>
-        </PromptInput>
+        <ChatComposer
+          value={input}
+          onValueChange={handleInput}
+          onKeyDown={(e) => {
+            if (ac.open && acMatches.length > 0 && (e.key === "Enter" || e.key === "Tab")) {
+              e.preventDefault();
+              pickMention(acMatches[0]);
+              return;
+            }
+            if (e.key === "Escape") setAc({ open: false, q: "" });
+          }}
+          onSubmit={handlePromptSubmit}
+          replyTo={replyTo}
+          onCancelReply={() => setReplyTo(null)}
+          busy={uploading}
+        />
         <div className="mt-1 text-xs text-[var(--muted-foreground)] hidden sm:block">Markdown • @mention • images preview inline</div>
       </div>
     </div>

@@ -124,17 +124,29 @@ Change any hex → entire app updates. No hard-coded colors in components; use m
 ```
 Header (56px, bg-card, border-b) — hidden actions when authed: shows user avatar + sign out
 └─ Body (flex, min-h 0)
-   ├─ Workspace Rail (64px, bg-sidebar, hidden <sm, hidden when not authed? shown always but empty state)
-   ├─ Channel Sidebar (260px, bg-sidebar-muted, hidden <md; collapsible)
+   ├─ App Sidebar (260px, bg-sidebar-muted, hidden <md)
+   │   ├─ Workspace switcher (dropdown w/ initials tile + name; create/invite actions)
+   │   ├─ Notifications bell (Popover) · Search button (opens ⌘P palette)
+   │   ├─ CHANNELS section (channels only — Hash/Lock icons, unread dots)
+   │   ├─ DIRECT MESSAGES section (avatars + presence dots)
+   │   ├─ AI MODELS section (Sparkles avatars + status dots)
+   │   └─ Account footer (dropdown: switch / sign out)
    └─ ChannelView (flex-1, bg-background)
       ├─ Header (56px, sticky)
-      ├─ Message list (flex-1, overflow-y)
-      └─ Composer (sticky bottom, bg-card, border-t)
+      ├─ Conversation (AI Elements, stick-to-bottom scroll + jump-to-bottom button)
+      └─ PromptInput composer (sticky bottom, bg-card, border-t)
 ```
+
+The old 64px workspace icon rail is **gone** — workspaces live in the sidebar header dropdown.
+All creation flows are modals (`components/dialogs/*`), never inline forms.
+Command palette (`Ctrl/Cmd+P`, alias `Ctrl/Cmd+K`): navigate channels/DMs/models,
+search messages, create workspace/channel, invite, manage models, switch workspace.
 
 **Hero rule (bug 1 fix):** Marketing hero `Where teams actually talk.` only on `lg` and **only when unauthenticated**. When `GET /api/users/me` succeeds, hide hero and render `AppShell` full-width.
 
 ## 6. Components
+
+UI primitives are **real shadcn/ui** (radix-nova preset, initialized in `apps/web/components.json`) — Button, Dialog, AlertDialog, Command/cmdk, Popover, DropdownMenu, Tooltip, ScrollArea, Avatar, Switch, Sonner toasts, Kbd. AI chat uses **Vercel AI Elements** (`components/ai-elements/`): Conversation (stick-to-bottom), Message + MessageResponse (streamdown markdown), Reasoning, Shimmer, PromptInput.
 
 ### Button
 - `default`: `bg-primary text-primary-foreground hover:bg-primary-hover`, h-9, rounded-[var(--radius-sm)], shadow-soft.
@@ -160,9 +172,10 @@ Header (56px, bg-card, border-b) — hidden actions when authed: shows user avat
 - Deleted: italic `text-muted-foreground`.
 
 ### AppShell
-- Rail active ws: `bg-primary text-primary-foreground`
+- Workspace active: initials tile `bg-primary text-primary-foreground` (dropdown check on current)
 - Channel active: `bg-primary text-primary-foreground`
-- Unread badge: `bg-primary`
+- Unread badge: `bg-primary`; presence/LLM status dots: emerald/red/amber
+- Icon policy: **no emoji glyphs in UI chrome** — lucide-react only (`Hash`, `Lock`, `AtSign`, `Bell`, `Sparkles`, …). Emojis are allowed only as *content* (message text, reaction values).
 
 ### Login
 - Centered `max-w-sm` card, `bg-card`, border, teal header gradient.

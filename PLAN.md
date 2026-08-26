@@ -29,6 +29,8 @@ Source of truth for where the project stands. Check off completed features, mark
 - [x] Petrol & mint redesign
 - [x] Read receipts: seen-by avatar stack on messages + unread dot on channels (mark-on-view, `read:receipt` WS fan-out)
 - [x] Invite acceptance page (`/invite/[token]`) — expired/used/already-member/unauth branches + login redirect carry-through
+- [x] **UI redesign (2026-08)**: real shadcn/ui foundation (radix-nova) mapped onto petrol/mint tokens; all emoji glyphs → lucide icons (reactions stay emoji content); workspace rail removed → sidebar-header workspace dropdown; sectioned sidebar (Channels only / Direct Messages / AI Models); creation UX moved to modals (workspace, channel w/ privacy switch, invite w/ clipboard link, new-DM member picker); `LlmManager` on Dialog + AlertDialog primitives; Ctrl/Cmd+P (and ⌘K) command palette — navigate channels/DMs/models, message search, creation actions, switch workspace, sign out; presence consolidated into Zustand store (`usePresenceSync`)
+- [x] AI Elements chat: Conversation stick-to-bottom scroll + jump button, MessageResponse streaming markdown for assistant messages, Reasoning for thinking streams, Shimmer thinking indicator, PromptInput composer with attach tool; hover actions via MessageAction tooltips
 
 ### Infra
 - [x] docker-compose (postgres, redis, minio + bucket creator, mailpit)
@@ -55,6 +57,7 @@ Full chat parity with web; bearer-token auth; push notifications deferred to pha
 
 ## Remaining / next up
 
+- [ ] Web polish: palette jump-to-message highlight (currently jumps to channel only), PromptInput native attachment integration (presign flow kept custom), dark-mode audit of new shadcn dialogs
 - [ ] Push notifications (phase 2): device token registry migration, `POST /api/push/register`, expo-server-sdk delivery in notifications worker, deep links
 - [ ] Search v2 (`tsvector` GIN), OpenSearch
 

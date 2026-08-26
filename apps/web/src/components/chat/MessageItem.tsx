@@ -3,9 +3,14 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { RichText, AttachmentPreview } from "./RichText";
 import { BrainCircuit, CornerUpLeft, Pencil, ThumbsUp, Heart, Laugh, Trash2 } from "lucide-react";
-import { MessageResponse } from "@/components/ai-elements/message";
+import {
+  Message,
+  MessageAction,
+  MessageActions,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
-import { MessageAction, MessageActions } from "@/components/ai-elements/message";
 
 type Msg = {
   id: string;
@@ -60,75 +65,83 @@ export function MessageItem({ msg, onReply, isOwn, memberTokens, meName, readBy 
     <div
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
-      className={`group relative flex gap-3 px-4 py-2 hover:bg-[var(--muted)]/60 ${isOwn ? "bg-[var(--accent-50)] dark:bg-white/[0.03] border-l-2 border-[var(--accent-300)]" : "border-l-2 border-transparent"}`}
+      className="relative hover:bg-[var(--muted)]/60"
     >
-      <div className={`h-8 w-8 rounded-full flex items-center justify-center text-[var(--primary-foreground)] shrink-0 shadow-[var(--shadow-soft)] bg-gradient-to-br ${isAi ? "from-[var(--accent)]" : "from-[var(--primary)]"} to-[var(--accent)]`}>
-        <span className="text-xs font-semibold">{(msg.sender?.name ?? "?").slice(0, 2).toUpperCase()}</span>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold text-[var(--foreground)]">{msg.sender?.name ?? "Unknown"}</span>
-          <span className="text-xs text-[var(--muted-foreground)]">{time}</span>
-          {msg.editedAt && <span className="text-xs text-[var(--muted-foreground)]">(edited)</span>}
+      {/* AI Elements preset alignment: own → right bubble, others → left */}
+      <Message
+        from={isOwn ? "user" : "assistant"}
+        className={`max-w-full gap-1 px-4 py-1.5 ${isOwn ? "" : ""}`}
+      >
+        {/* header: avatar + name + time (mirrored for own messages) */}
+        <div className={`flex items-baseline gap-2 text-xs ${isOwn ? "self-end flex-row-reverse" : ""}`}>
+          <span className={`h-6 w-6 rounded-full flex items-center justify-center text-[var(--primary-foreground)] shrink-0 bg-gradient-to-br ${isAi ? "from-[var(--accent)]" : "from-[var(--primary)]"} to-[var(--accent)] translate-y-0.5`}>
+            <span className="text-[9px] font-semibold">{(msg.sender?.name ?? "?").slice(0, 2).toUpperCase()}</span>
+          </span>
+          <span className="text-[13px] font-semibold text-[var(--foreground)]">{msg.sender?.name ?? "Unknown"}</span>
+          <span className="text-[11px] text-[var(--muted-foreground)]">{time}</span>
+          {msg.editedAt && <span className="text-[11px] text-[var(--muted-foreground)]">(edited)</span>}
         </div>
 
+        {/* reasoning collapsible stays outside the bubble, full width of its side */}
         {msg.reasoning ? (
-          <Reasoning className="mt-1 mb-1 w-full max-w-full" defaultOpen={false}>
+          <Reasoning className={`${isOwn ? "self-end" : ""} w-fit max-w-full`} defaultOpen={false}>
             <ReasoningTrigger className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
               <BrainCircuit className="h-3.5 w-3.5" /> Thinking
             </ReasoningTrigger>
-            <ReasoningContent className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-xs text-[var(--muted-foreground)]">
+            <ReasoningContent className="max-h-64 overflow-y-auto break-words text-xs text-[var(--muted-foreground)]">
               {msg.reasoning}
             </ReasoningContent>
           </Reasoning>
         ) : null}
 
-        {editing ? (
-          <div className="mt-1 flex gap-2">
-            <input value={editContent} onChange={(e) => setEditContent(e.target.value)} className="flex-1 rounded-[var(--radius-sm)] border border-[var(--input-border)] bg-[var(--input)] text-[var(--foreground)] px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]" />
-            <button onClick={handleEdit} className="text-xs bg-[var(--primary)] text-[var(--primary-foreground)] px-3 py-1 rounded-[var(--radius-sm)]">Save</button>
-            <button onClick={() => setEditing(false)} className="text-xs border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] px-3 py-1 rounded-[var(--radius-sm)]">Cancel</button>
-          </div>
-        ) : isAi ? (
-          <MessageResponse className="text-sm break-words [&>*:first-child]:mt-0">{msg.content}</MessageResponse>
-        ) : (
-          <RichText content={msg.content} memberTokens={memberTokens ?? new Set()} meName={meName} />
-        )}
+        <MessageContent className={isOwn ? "text-[13px]" : "text-sm"}>
+          {editing ? (
+            <div className="flex gap-2 py-1">
+              <input value={editContent} onChange={(e) => setEditContent(e.target.value)} className="flex-1 rounded-[var(--radius-sm)] border border-[var(--input-border)] bg-[var(--input)] text-[var(--foreground)] px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]" />
+              <button onClick={handleEdit} className="text-xs bg-[var(--primary)] text-[var(--primary-foreground)] px-3 py-1 rounded-[var(--radius-sm)]">Save</button>
+              <button onClick={() => setEditing(false)} className="text-xs border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] px-3 py-1 rounded-[var(--radius-sm)]">Cancel</button>
+            </div>
+          ) : isAi ? (
+            <MessageResponse className="break-words [&>*:first-child]:mt-0">{msg.content}</MessageResponse>
+          ) : (
+            <RichText content={msg.content} memberTokens={memberTokens ?? new Set()} meName={meName} />
+          )}
 
-        {msg.attachments && msg.attachments.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {msg.attachments.map((a) => (
-              <AttachmentPreview key={a.key} att={a} />
-            ))}
-          </div>
-        )}
+          {msg.attachments && msg.attachments.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {msg.attachments.map((a) => (
+                <AttachmentPreview key={a.key} att={a} />
+              ))}
+            </div>
+          )}
 
-        {Object.keys(groupedReactions).length > 0 && (
-          <div className="mt-2 flex gap-1 flex-wrap">
-            {Object.entries(groupedReactions).map(([emoji, count]) => (
-              <button key={emoji} onClick={() => react(emoji)} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-xs hover:bg-[var(--muted)] text-[var(--foreground)]">
-                {/* reactions are emoji content, not UI chrome */}
-                <span>{emoji}</span><span className="text-[var(--muted-foreground)]">{count}</span>
-              </button>
-            ))}
-          </div>
-        )}
+          {Object.keys(groupedReactions).length > 0 && (
+            <div className="mt-1.5 flex gap-1 flex-wrap">
+              {Object.entries(groupedReactions).map(([emoji, count]) => (
+                <button key={emoji} onClick={() => react(emoji)} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-xs hover:bg-[var(--muted)] text-[var(--foreground)]">
+                  {/* reactions are emoji content, not UI chrome */}
+                  <span>{emoji}</span><span className="text-[var(--muted-foreground)]">{count}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
-        {readBy && readBy.length > 0 && (
-          <div className="mt-1 flex items-center justify-end gap-1" title={`Read by ${readBy.map((r) => r.name).join(", ")}`}>
-            {readBy.slice(0, 4).map((r) => (
-              <span
-                key={r.id}
-                className="h-5 w-5 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] text-[var(--primary-foreground)] text-[9px] font-bold flex items-center justify-center ring-2 ring-[var(--card)] -ml-1 first:ml-0"
-                title={r.name}
-              >
-                {String(r.name ?? "?").slice(0, 2).toUpperCase()}
-              </span>
-            ))}
-            {readBy.length > 4 && <span className="text-xs text-[var(--muted-foreground)] ml-1">+{readBy.length - 4}</span>}
-          </div>
-        )}
-      </div>
+          {readBy && readBy.length > 0 && (
+            <div className={`mt-1 flex items-center gap-1 ${isOwn ? "justify-start" : "justify-end"}`} title={`Read by ${readBy.map((r) => r.name).join(", ")}`}>
+              {readBy.slice(0, 4).map((r) => (
+                <span
+                  key={r.id}
+                  className="h-5 w-5 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] text-[var(--primary-foreground)] text-[9px] font-bold flex items-center justify-center ring-2 ring-[var(--card)] -ml-1 first:ml-0"
+                  title={r.name}
+                >
+                  {String(r.name ?? "?").slice(0, 2).toUpperCase()}
+                </span>
+              ))}
+              {readBy.length > 4 && <span className="text-xs text-[var(--muted-foreground)] ml-1">+{readBy.length - 4}</span>}
+            </div>
+          )}
+        </MessageContent>
+      </Message>
 
       {showActions && !editing && (
         <MessageActions className="absolute -top-3 right-4 rounded-full border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-card)] px-1 py-1 z-10">
