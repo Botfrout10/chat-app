@@ -27,12 +27,19 @@ type State = {
   paletteOpen: boolean;
   /** sidebar collapsed to an icon rail */
   sidebarCollapsed: boolean;
+  /** sidebar completely hidden — main area takes the full width */
+  sidebarHidden: boolean;
   /** per-section collapse inside the sidebar */
   sidebarSections: Record<SidebarSection, boolean>; // true = collapsed
   openDialog: (d: UiDialog) => void;
   closeDialog: () => void;
   setPaletteOpen: (open: boolean) => void;
+  /** cycle: expanded → rail → hidden → expanded */
   toggleSidebar: () => void;
+  /** leave hidden state (back to previous collapsed/expanded) */
+  showSidebar: () => void;
+  /** expand/collapse without touching hidden */
+  setSidebarCollapsed: (v: boolean) => void;
   toggleSection: (s: SidebarSection) => void;
 };
 
@@ -40,6 +47,7 @@ export const useUiStore = create<State>((set, get) => ({
   dialog: null,
   paletteOpen: false,
   sidebarCollapsed: loadBool("pulse.sidebar.collapsed", false),
+  sidebarHidden: loadBool("pulse.sidebar.hidden", false),
   sidebarSections: {
     channels: loadBool("pulse.sidebar.sec.channels", false),
     dms: loadBool("pulse.sidebar.sec.dms", false),
@@ -49,9 +57,25 @@ export const useUiStore = create<State>((set, get) => ({
   closeDialog: () => set({ dialog: null }),
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
   toggleSidebar: () => {
-    const sidebarCollapsed = !get().sidebarCollapsed;
-    persist("pulse.sidebar.collapsed", sidebarCollapsed);
-    set({ sidebarCollapsed });
+    const s = get();
+    if (s.sidebarHidden) {
+      persist("pulse.sidebar.hidden", false);
+      set({ sidebarHidden: false });
+    } else if (s.sidebarCollapsed) {
+      persist("pulse.sidebar.hidden", true);
+      set({ sidebarHidden: true });
+    } else {
+      persist("pulse.sidebar.collapsed", true);
+      set({ sidebarCollapsed: true });
+    }
+  },
+  showSidebar: () => {
+    persist("pulse.sidebar.hidden", false);
+    set({ sidebarHidden: false });
+  },
+  setSidebarCollapsed: (v) => {
+    persist("pulse.sidebar.collapsed", v);
+    set({ sidebarCollapsed: v });
   },
   toggleSection: (s) => {
     const sidebarSections = { ...get().sidebarSections, [s]: !get().sidebarSections[s] };

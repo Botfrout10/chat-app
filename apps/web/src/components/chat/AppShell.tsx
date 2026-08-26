@@ -1,10 +1,11 @@
 "use client";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
+import { PanelLeftOpen, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { connectSocket } from "@/lib/socket";
 import { useChatStore } from "@/store/chat";
+import { useUiStore } from "@/store/ui";
 import { usePresenceSync } from "@/hooks/useChatActions";
 import { Button } from "@/components/ui/button";
 import { AppSidebar } from "./AppSidebar";
@@ -13,7 +14,13 @@ import { CommandPalette } from "./CommandPalette";
 import { DialogHost } from "@/components/dialogs/DialogHost";
 
 export function AppShell() {
-  const { activeWorkspaceId, activeChannelId, channels, setWorkspaces, setActiveWorkspace, setChannels } = useChatStore();
+  // selector subscriptions — avoids re-rendering the whole shell on every
+  // llm:delta token (each set() creates a new state object)
+  const activeWorkspaceId = useChatStore((s) => s.activeWorkspaceId);
+  const activeChannelId = useChatStore((s) => s.activeChannelId);
+  const channels = useChatStore((s) => s.channels);
+  const sidebarHidden = useUiStore((s) => s.sidebarHidden);
+  const showSidebar = useUiStore((s) => s.showSidebar);
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: () => api.me().catch(() => null) });
   const meId = (me as any)?.id as string | undefined;
@@ -23,8 +30,8 @@ export function AppShell() {
     queryKey: ["workspaces"],
     queryFn: async () => {
       const data = await api.workspaces().catch(() => []);
-      setWorkspaces(data as any);
-      if (!activeWorkspaceId && (data as any)?.[0]) setActiveWorkspace((data as any)[0].id);
+      useChatStore.getState().setWorkspaces(data as any);
+      if (!activeWorkspaceId && (data as any)?.[0]) useChatStore.getState().setActiveWorkspace((data as any)[0].id);
       return data;
     },
   });
@@ -33,10 +40,9 @@ export function AppShell() {
   useEffect(() => {
     if (!activeWorkspaceId) return;
     api.channels(activeWorkspaceId).then((chs: any) => {
-      setChannels(chs as any);
-      if (!activeChannelId && (chs as any)?.[0]) useChatStore.getState().setActiveChannel((chs as any)[0].id);
-    }).catch(() => setChannels([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      useChatStore.getState().setChannels(chs as any);
+      if (!useChatStore.getState().activeChannelId && (chs as any)?.[0]) useChatStore.getState().setActiveChannel((chs as any)[0].id);
+    }).catch(() => useChatStore.getState().setChannels([]));
   }, [activeWorkspaceId]);
 
   // realtime + presence (single source of truth: the Zustand store)
@@ -63,8 +69,10 @@ export function AppShell() {
       if (p.channelId) st().clearLlmStream(p.channelId);
     };
     const onNew = (msg: any) => {
-      // final LLM reply arrived — drop that channel's live stream placeholder
-      if (msg?.llmConnectionId) st().clearLlmStreamByConnection(msg.llmConnectionId);
+      // final LLM reply arrived — drop that channel's live stream placeholder.
+      // key off msg.channelId: the channels-list API doesn't return
+      // llmConnectionId, so matching by connection would never hit.
+      if (msg?.llmConnectionId && msg?.channelId) st().clearLlmStream(msg.channelId);
     };
     s.on("llm:typing", onTyping);
     s.on("llm:thinking", onThinking);
@@ -102,8 +110,17 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden bg-[var(--background)]">
-      <AppSidebar />
+    <div className="flex flex-1 min-h-0 overflow-hidden bg-[var(--background)] relative">
+      {!sidebarHidden && <AppSidebar />}
+      {sidebarHidden && (
+        <button
+          onClick={showSidebar}
+          title="Show sidebar (Ctrl+B)"
+          className="absolute top-3 left-3 z-30 h-8 w-8 rounded-lg border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-soft)] flex items-center justify-center text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+        >
+          <PanelLeftOpen className="h-4 w-4" />
+        </button>
+      )}
 
       {/* main */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden bg-[var(--background)]">

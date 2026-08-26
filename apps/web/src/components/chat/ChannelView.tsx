@@ -48,6 +48,9 @@ import {
 
 type Props = { channelId: string; workspaceId?: string; channel?: any };
 
+/** stable empty array — keeps MessageItem's memo from invalidating every render */
+const EMPTY_READBY: { id: string; name: string; image?: string | null }[] = [];
+
 /** Inline chips for files staged in the PromptInput attachment context. */
 function PromptInputAttachmentsDisplay() {
   const attachments = usePromptInputAttachments();
@@ -66,7 +69,7 @@ function PromptInputAttachmentsDisplay() {
 
 /** Preset-composed composer: attachments header, textarea, footer w/ attach menu + submit. */
 function ChatComposer({
-  value, onValueChange, onKeyDown, onSubmit, replyTo, onCancelReply, busy,
+  value, onValueChange, onKeyDown, onSubmit, replyTo, onCancelReply, busy, contextInfo,
 }: {
   value: string;
   onValueChange: (v: string) => void;
@@ -75,6 +78,7 @@ function ChatComposer({
   replyTo: string | null;
   onCancelReply: () => void;
   busy: boolean;
+  contextInfo?: { usedTokens: number; maxTokens: number } | null;
 }) {
   return (
     <PromptInput onSubmit={onSubmit} multiple globalDrop>
@@ -105,6 +109,40 @@ function ChatComposer({
               <PromptInputActionAddAttachments />
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
+          {contextInfo && (
+            <Context
+              usedTokens={contextInfo.usedTokens}
+              maxTokens={contextInfo.maxTokens}
+              usage={{
+                inputTokens: contextInfo.usedTokens,
+                inputTokenDetails: { noCacheTokens: contextInfo.usedTokens, cacheReadTokens: 0, cacheWriteTokens: 0 },
+                outputTokens: 0,
+                outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+                totalTokens: contextInfo.usedTokens,
+              }}
+            >
+              <ContextTrigger>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  title="AI context usage"
+                  className="rounded-full border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)]/40"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                </Button>
+              </ContextTrigger>
+              <ContextContent align="start">
+                <ContextContentHeader />
+                <ContextContentBody>
+                  <ContextInputUsage />
+                </ContextContentBody>
+                <ContextContentFooter className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
+                  Context estimate (~4 chars/token). Actual window depends on the provider model.
+                </ContextContentFooter>
+              </ContextContent>
+            </Context>
+          )}
         </PromptInputTools>
         <PromptInputSubmit disabled={busy} title="Send" />
       </PromptInputFooter>
@@ -183,7 +221,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       qc.setQueryData(["messages", channelId], (old: any) => upsert(old, msg));
       // final LLM reply arrived — drop the streaming placeholder
       if (msg?.llmConnectionId) {
-        useChatStore.getState().clearLlmStreamByConnection(msg.llmConnectionId);
+        useChatStore.getState().clearLlmStream(channelId);
       }
       // auto-mark read when in view and at bottom (StickToBottom pins us there)
       if (meId && isAtBottomRef.current && msg?.id) {
@@ -387,6 +425,8 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
 
   const isDm = channel?.type === "dm";
   const title = isDm ? `${channel?.dmPeer?.name ?? "direct message"}` : `${channel?.name ?? channelId.slice(0, 8)}`;
+  // model-DM replies come from the bot even though stored rows lack llmConnectionId
+  const isAiChannel = !!channel?.llmConnectionId;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--background)]">
@@ -397,30 +437,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           <span className="text-xs text-[var(--muted-foreground)]">{allMessages.length} messages</span>
         </div>
         <div className="flex items-center gap-2">
-          {channel?.llmConnectionId && (
-            <Context
-              usedTokens={estContextTokens}
-              maxTokens={8192}
-              usage={{
-                inputTokens: estContextTokens,
-                inputTokenDetails: { noCacheTokens: estContextTokens, cacheReadTokens: 0, cacheWriteTokens: 0 },
-                outputTokens: 0,
-                outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
-                totalTokens: estContextTokens,
-              }}
-            >
-              <ContextTrigger />
-              <ContextContent align="end">
-                <ContextContentHeader />
-                <ContextContentBody>
-                  <ContextInputUsage />
-                </ContextContentBody>
-                <ContextContentFooter className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
-                  Context estimate (~4 chars/token). Actual window depends on the provider model.
-                </ContextContentFooter>
-              </ContextContent>
-            </Context>
-          )}
           {hasNextPage && (
             <Button variant="ghost" size="sm" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
               {isFetchingNextPage ? "Loading…" : "Load older"}
@@ -444,7 +460,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
             />
           ) : (
             allMessages.map((m: any) => (
-              <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={meId === m.senderId} meId={meId} memberTokens={memberTokens} meName={meName} readBy={readByMap.get(m.id) ?? []} />
+              <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={meId === m.senderId} meId={meId} isAiChannel={isAiChannel} memberTokens={memberTokens} meName={meName} readBy={readByMap.get(m.id) ?? EMPTY_READBY} />
             ))
           )}
 
@@ -459,7 +475,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
                 )}
               </div>
               {!!stream.thinking && (
-                <Reasoning isStreaming={!stream.text} defaultOpen={!stream.text}>
+                <Reasoning defaultOpen={!stream.text}>
                   <ReasoningTrigger className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]" />
                   <ReasoningContent className="max-h-64 overflow-y-auto break-words text-xs text-[var(--muted-foreground)]">
                     {stream.thinking}
@@ -511,6 +527,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
           busy={uploading}
+          contextInfo={isAiChannel ? { usedTokens: estContextTokens, maxTokens: 8192 } : null}
         />
         <div className="mt-1 text-xs text-[var(--muted-foreground)] hidden sm:block">Markdown • @mention • images preview inline</div>
       </div>

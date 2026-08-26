@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useState, memo } from "react";
 import { api } from "@/lib/api";
 import { RichText, AttachmentPreview } from "./RichText";
 import { BrainCircuit, CornerUpLeft, Pencil, ThumbsUp, Heart, Laugh, Trash2 } from "lucide-react";
@@ -27,7 +27,9 @@ type Msg = {
   attachments?: { key: string; filename: string; mime?: string; size?: number }[];
 };
 
-export function MessageItem({ msg, onReply, isOwn, meId, memberTokens, meName, readBy }: { msg: Msg; onReply?: (id: string) => void; isOwn?: boolean; meId?: string | null; memberTokens?: Set<string>; meName?: string; readBy?: { id: string; name: string; image?: string | null }[] }) {
+const EMPTY_READBY: { id: string; name: string; image?: string | null }[] = [];
+
+function MessageItemInner({ msg, onReply, isOwn, meId, isAiChannel, memberTokens, meName, readBy = EMPTY_READBY }: { msg: Msg; onReply?: (id: string) => void; isOwn?: boolean; meId?: string | null; isAiChannel?: boolean; memberTokens?: Set<string>; meName?: string; readBy?: { id: string; name: string; image?: string | null }[] }) {
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
   const [showActions, setShowActions] = useState(false);
@@ -43,8 +45,9 @@ export function MessageItem({ msg, onReply, isOwn, meId, memberTokens, meName, r
     }
     return [...map.entries()];
   }, [msg.reactions, meId]);
-  // assistant messages render as streaming markdown instead of mention-chip rich text
-  const isAi = !!msg.llmConnectionId;
+  // assistant messages render as streaming markdown instead of mention-chip rich text.
+  // stored rows lack llmConnectionId — in model DMs every reply is from the bot.
+  const isAi = isAiChannel || !!msg.llmConnectionId;
 
   async function handleEdit() {
     if (!editContent.trim()) return;
@@ -186,3 +189,6 @@ export function MessageItem({ msg, onReply, isOwn, meId, memberTokens, meName, r
     </div>
   );
 }
+
+/** Memoized: a new llm:delta token must not re-render the entire message list. */
+export const MessageItem = memo(MessageItemInner);

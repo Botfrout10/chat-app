@@ -140,11 +140,17 @@ function CollapsibleSection({
 
 export function AppSidebar() {
   const qc = useQueryClient();
-  const { workspaces, activeWorkspaceId, channels, activeChannelId, setActiveChannel, presence } = useChatStore();
+  const workspaces = useChatStore((s) => s.workspaces);
+  const activeWorkspaceId = useChatStore((s) => s.activeWorkspaceId);
+  const channels = useChatStore((s) => s.channels);
+  const activeChannelId = useChatStore((s) => s.activeChannelId);
+  const setActiveChannel = useChatStore((s) => s.setActiveChannel);
+  const presence = useChatStore((s) => s.presence);
   const openDialog = useUiStore((s) => s.openDialog);
   const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
   const { resolvedTheme, setTheme } = useTheme();
 
   // Ctrl/Cmd+B collapses the sidebar
@@ -209,7 +215,7 @@ export function AppSidebar() {
         {collapsed ? (
           <>
             <button
-              onClick={toggleSidebar}
+              onClick={() => setSidebarCollapsed(false)}
               title="Expand sidebar (Ctrl+B)"
               className="h-7 w-7 rounded-lg bg-sidebar-foreground/10 hover:bg-sidebar-foreground/15 border border-sidebar-foreground/10 flex items-center justify-center text-sidebar-foreground/60"
             >

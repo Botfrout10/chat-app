@@ -6,9 +6,11 @@ import {
   BrainCircuit,
   CornerDownLeft,
   Hash,
+  Keyboard,
   Lock,
   LogOut,
   MessageSquarePlus,
+  PanelLeftClose,
   Plus,
   Search,
   Sparkles,
@@ -29,11 +31,18 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
+  CommandShortcut,
 } from "@/components/ui/command";
 
 export function CommandPalette() {
-  const { paletteOpen, setPaletteOpen, openDialog } = useUiStore();
-  const { workspaces, activeWorkspaceId, channels, setActiveChannel, setActiveWorkspace } = useChatStore();
+  const paletteOpen = useUiStore((s) => s.paletteOpen);
+  const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
+  const openDialog = useUiStore((s) => s.openDialog);
+  const workspaces = useChatStore((s) => s.workspaces);
+  const activeWorkspaceId = useChatStore((s) => s.activeWorkspaceId);
+  const channels = useChatStore((s) => s.channels);
+  const setActiveChannel = useChatStore((s) => s.setActiveChannel);
+  const setActiveWorkspace = useChatStore((s) => s.setActiveWorkspace);
   const openDm = useOpenDm();
   const openLlmDm = useOpenLlmDm();
 
@@ -193,6 +202,28 @@ export function CommandPalette() {
         <CommandGroup heading="Account">
           <CommandItem value="sign out logout" onSelect={() => runAction(async () => { await api.authSignOut(); location.reload(); })}>
             <LogOut /> Sign out
+          </CommandItem>
+        </CommandGroup>
+
+        <CommandSeparator />
+        <CommandGroup heading="Keybindings">
+          <CommandItem disabled value="kb-palette" className="opacity-80">
+            <Keyboard className="h-3.5 w-3.5" /> Open palette <CommandShortcut>Ctrl P / ⌘K</CommandShortcut>
+          </CommandItem>
+          <CommandItem disabled value="kb-sidebar-hide" className="opacity-80">
+            <PanelLeftClose className="h-3.5 w-3.5" /> Hide / collapse sidebar <CommandShortcut>Ctrl B</CommandShortcut>
+          </CommandItem>
+          <CommandItem disabled value="kb-send" className="opacity-80">
+            <CornerDownLeft className="h-3.5 w-3.5" /> Send message <CommandShortcut>Enter</CommandShortcut>
+          </CommandItem>
+          <CommandItem disabled value="kb-newline" className="opacity-80">
+            New line <CommandShortcut>Shift Enter</CommandShortcut>
+          </CommandItem>
+          <CommandItem disabled value="kb-mention" className="opacity-80">
+            <AtSign className="h-3.5 w-3.5" /> Mention <CommandShortcut>@</CommandShortcut>
+          </CommandItem>
+          <CommandItem disabled value="kb-close" className="opacity-80">
+            Close dialog <CommandShortcut>Esc</CommandShortcut>
           </CommandItem>
         </CommandGroup>
       </CommandList>
