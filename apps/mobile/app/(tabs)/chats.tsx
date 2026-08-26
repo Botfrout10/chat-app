@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -16,8 +16,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { api } from "@/api/client";
 import { useChannels, useMembers, useWorkspaces } from "@/hooks/queries";
+import { usePullToPalette } from "@/hooks/usePullToPalette";
 import { channelTitle, initials, isDmLike } from "@/lib/channelTitle";
 import { useChatStore } from "@/stores/chat";
+import { useUiStore } from "@/stores/ui";
 import { useTheme } from "@/theme/useTheme";
 import type { Channel, LlmConnection } from "@/types";
 
@@ -29,6 +31,22 @@ export default function Chats() {
   const [modal, setModal] = useState<"workspace" | "dm" | "channel" | null>(null);
   const [newWsName, setNewWsName] = useState("");
   const [wsError, setWsError] = useState<string | null>(null);
+  const paletteOpen = useUiStore((s) => s.paletteOpen);
+  const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
+  const uiDialog = useUiStore((s) => s.dialog);
+  const closeUiDialog = useUiStore((s) => s.closeDialog);
+
+  // bridge palette dialog → local modal (keeps existing modal UI)
+  useEffect(() => {
+    if (uiDialog === "createWorkspace") setModal("workspace");
+    else if (uiDialog === "createChannel") setModal("channel");
+    else if (uiDialog === "newDm" || uiDialog === "inviteMember") setModal("dm");
+  }, [uiDialog]);
+
+  function closeModal() {
+    setModal(null);
+    closeUiDialog();
+  }
 
   const createWsMutation = useMutation({
     mutationFn: () => api.createWorkspace(newWsName.trim()),
@@ -37,6 +55,7 @@ export default function Chats() {
       setActiveWorkspace(ws.id);
       setNewWsName("");
       setModal(null);
+      useUiStore.getState().closeDialog();
     },
     onError: (e) => setWsError(e instanceof Error ? e.message : "Failed to create workspace"),
   });
@@ -68,6 +87,13 @@ export default function Chats() {
     }
     return map;
   }, [notificationsQuery.data]);
+
+  const atTopRef = useRef(true);
+  const { panHandlers, pullDistance } = usePullToPalette({
+    enabled: !paletteOpen,
+    atTopRef,
+    onOpen: () => setPaletteOpen(true),
+  });
 
   const channels = channelsQuery.data ?? [];
   const channelList = channels.filter((c) => !isDmLike(c));
@@ -123,7 +149,7 @@ export default function Chats() {
   }
 
   async function handleDmCreated(channelId: string, name: string) {
-    setModal(null);
+    closeModal();
     await queryClient.invalidateQueries({ queryKey: ["channels", activeWorkspaceId] });
     router.push({ pathname: "/channel/[id]", params: { id: channelId, name, type: "dm" } });
   }
@@ -135,23 +161,48 @@ export default function Chats() {
         <Text style={[styles.wsName, { color: t.foreground }]} numberOfLines={1}>
           {activeWs?.name ?? "Pulse"}
         </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setModal("workspace")}
-          style={[styles.headerBtn, { backgroundColor: t.muted }]}
-        >
-          <Ionicons name="swap-horizontal" size={18} color={t.primary} />
-        </Pressable>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open command palette"
+            onPress={() => setPaletteOpen(true)}
+            style={[styles.headerBtn, { backgroundColor: t.muted }]}
+          >
+            <Ionicons name="search" size={18} color={t.primary} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setModal("workspace")}
+            style={[styles.headerBtn, { backgroundColor: t.muted }]}
+          >
+            <Ionicons name="swap-horizontal" size={18} color={t.primary} />
+          </Pressable>
+        </View>
       </View>
+
+      {/* pull-down hint */}
+      {pullDistance > 0 && (
+        <View style={[styles.pullHint, { backgroundColor: t.muted, borderColor: t.border }]}>
+          <Ionicons name={pullDistance > 88 ? "sparkles" : "chevron-down"} size={14} color={t.primary} />
+          <Text style={[styles.pullHintText, { color: t.primary }]}>
+            {pullDistance > 88 ? "Release to open palette" : pullDistance > 40 ? "Keep pulling for palette" : "Pull down for palette"}
+          </Text>
+        </View>
+      )}
 
       {(channelsQuery.isPending || workspacesQuery.isPending) && (
         <ActivityIndicator style={{ marginTop: 24 }} color={t.primary} />
       )}
 
-      <FlatList
-        data={[{ kind: "channels" as const }, { kind: "models" as const }, { kind: "dms" as const }]}
-        keyExtractor={(item) => item.kind}
-        renderItem={({ item }) =>
+      <View style={{ flex: 1 }} {...panHandlers}>
+        <FlatList
+          onScroll={(e) => {
+            atTopRef.current = e.nativeEvent.contentOffset.y <= 4;
+          }}
+          scrollEventThrottle={16}
+          data={[{ kind: "channels" as const }, { kind: "models" as const }, { kind: "dms" as const }]}
+          keyExtractor={(item) => item.kind}
+          renderItem={({ item }) =>
           item.kind === "channels" ? (
             <Section
               title={`Channels${channelList.length ? ` — ${channelList.length}` : ""}`}
@@ -228,19 +279,20 @@ export default function Chats() {
             </Section>
           )
         }
-        refreshing={channelsQuery.isRefetching}
-        onRefresh={refresh}
-        contentContainerStyle={{ paddingBottom: 24 }}
-      />
+          refreshing={channelsQuery.isRefetching}
+          onRefresh={refresh}
+          contentContainerStyle={{ paddingBottom: 24 }}
+        />
+      </View>
 
       {/* workspace switcher */}
       <Modal
         visible={modal === "workspace"}
         transparent
         animationType="fade"
-        onRequestClose={() => setModal(null)}
+        onRequestClose={closeModal}
       >
-        <Pressable style={styles.modalBackdrop} onPress={() => setModal(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={closeModal}>
           <View style={[styles.modalCard, { backgroundColor: t.card }]}>
             <Text style={[styles.modalTitle, { color: t.foreground }]}>Workspaces</Text>
             {(workspacesQuery.data ?? []).map((w) => (
@@ -303,7 +355,7 @@ export default function Chats() {
       <DmPickerModal
         visible={modal === "dm"}
         workspaceId={activeWorkspaceId}
-        onClose={() => setModal(null)}
+        onClose={closeModal}
         onCreated={handleDmCreated}
       />
 
@@ -311,7 +363,7 @@ export default function Chats() {
       <CreateChannelModal
         visible={modal === "channel"}
         workspaceId={activeWorkspaceId}
-        onClose={() => setModal(null)}
+        onClose={closeModal}
         onCreated={handleDmCreated}
       />
     </SafeAreaView>
@@ -664,6 +716,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  pullHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 2,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignSelf: "center",
+  },
+  pullHintText: { fontSize: 12, fontWeight: "600" },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",

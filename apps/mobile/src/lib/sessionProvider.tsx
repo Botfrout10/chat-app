@@ -11,6 +11,7 @@ import {
 } from "@/lib/session";
 import { disconnectSocket, resetSocket } from "@/lib/socket";
 import { useChatStore } from "@/stores/chat";
+import { useUiStore } from "@/stores/ui";
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
@@ -41,6 +42,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         await deleteToken();
         resetSocket();
         useChatStore.getState().reset();
+        useUiStore.getState().reset();
         queryClient.clear();
         setToken(null);
       })();
@@ -67,6 +69,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         disconnectSocket();
         resetSocket();
         useChatStore.getState().reset();
+        useUiStore.getState().reset();
         queryClient.clear();
         setToken(null);
       },

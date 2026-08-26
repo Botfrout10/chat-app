@@ -3,6 +3,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { CommandPalette } from "@/components/chat/CommandPalette";
 import { useChatEvents } from "@/hooks/useChatEvents";
 import { SessionProvider } from "@/lib/sessionProvider";
 import { useSession } from "@/lib/session";
@@ -45,6 +46,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <SessionProvider>
           <EventBridge />
+          <CommandPalette />
           <RootStack />
         </SessionProvider>
       </QueryClientProvider>
