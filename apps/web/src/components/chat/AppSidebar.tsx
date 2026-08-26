@@ -6,19 +6,25 @@ import {
   Bell,
   BrainCircuit,
   ChevronDown,
+  ChevronRight,
   Hash,
   Lock,
   LogOut,
   ArrowLeftRight,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   Sparkles,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { useChatStore } from "@/store/chat";
-import { useUiStore } from "@/store/ui";
+import { useUiStore, type SidebarSection } from "@/store/ui";
 import { useOpenDm, useOpenLlmDm } from "@/hooks/useChatActions";
+import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -28,27 +34,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Kbd } from "@/components/ui/kbd";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { useTheme } from "next-themes";
-import { Moon, Sun } from "lucide-react";
-
-function SectionHeader({ label, onAdd, addTitle }: { label: string; onAdd?: () => void; addTitle?: string }) {
-  return (
-    <div className="flex items-center justify-between px-2 pt-4 pb-1">
-      <span className="text-[11px] font-semibold tracking-widest text-white/40">{label}</span>
-      {onAdd && (
-        <button
-          onClick={onAdd}
-          title={addTitle}
-          className="h-5 w-5 rounded-md bg-white/10 hover:bg-white/15 border border-white/10 flex items-center justify-center"
-        >
-          <Plus className="h-3 w-3" />
-        </button>
-      )}
-    </div>
-  );
-}
 
 function SidebarButton({
   active,
@@ -56,26 +45,96 @@ function SidebarButton({
   children,
   unread,
   title,
+  rail,
 }: {
   active?: boolean;
   onClick?: () => void;
   children: React.ReactNode;
   unread?: boolean;
   title?: string;
+  rail?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       title={title}
-      className={`w-full text-left px-2 py-1.5 rounded-[var(--radius-md)] text-sm flex items-center gap-2 ${
+      className={cn(
+        "text-left rounded-[var(--radius-md)] text-sm flex items-center gap-2 relative",
+        rail ? "h-9 w-9 mx-auto justify-center px-0" : "w-full px-2 py-1.5",
         active
           ? "bg-[var(--primary)] text-[var(--primary-foreground)] shadow-[var(--shadow-soft)]"
-          : "text-white/60 hover:bg-white/5 hover:text-white"
-      }`}
+          : "text-sidebar-foreground/60 hover:bg-sidebar-foreground/5 hover:text-sidebar-foreground"
+      )}
     >
       {children}
-      {unread && !active && <span className="ml-auto h-2 w-2 rounded-full bg-[var(--accent)] shrink-0" title="Unread" />}
+      {unread && !active && (
+        <span className={cn("h-2 w-2 rounded-full bg-[var(--accent)]", rail ? "absolute top-1 right-1" : "ml-auto shrink-0")} title="Unread" />
+      )}
     </button>
+  );
+}
+
+function CollapsibleSection({
+  sectionKey,
+  label,
+  rail,
+  onAdd,
+  addTitle,
+  children,
+}: {
+  sectionKey: SidebarSection;
+  label: string;
+  rail?: boolean;
+  onAdd?: () => void;
+  addTitle?: string;
+  children: React.ReactNode;
+}) {
+  const isCollapsed = useUiStore((s) => s.sidebarSections[sectionKey]);
+  const toggleSection = useUiStore((s) => s.toggleSection);
+
+  if (rail) {
+    return (
+      <div className="flex flex-col items-center gap-1 pt-3 border-t border-sidebar-foreground/10 mx-2 first:border-t-0">
+        {onAdd && (
+          <button
+            onClick={onAdd}
+            title={addTitle}
+            className="h-7 w-7 rounded-md bg-sidebar-foreground/10 hover:bg-sidebar-foreground/15 border border-sidebar-foreground/10 flex items-center justify-center text-sidebar-foreground/60"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <Collapsible open={!isCollapsed} onOpenChange={() => toggleSection(sectionKey)}>
+      <div className="flex items-center justify-between px-2 pt-4 pb-1">
+        <CollapsibleTrigger asChild>
+          <button
+            className="flex items-center gap-1 text-[11px] font-semibold tracking-widest text-sidebar-foreground/40 hover:text-sidebar-foreground/60 transition-colors"
+            title={isCollapsed ? `Expand ${label}` : `Collapse ${label}`}
+          >
+            <ChevronRight className={cn("h-3 w-3 transition-transform", !isCollapsed && "rotate-90")} />
+            {label}
+          </button>
+        </CollapsibleTrigger>
+        {onAdd && (
+          <button
+            onClick={onAdd}
+            title={addTitle}
+            className="h-5 w-5 rounded-md bg-sidebar-foreground/10 hover:bg-sidebar-foreground/15 border border-sidebar-foreground/10 flex items-center justify-center"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+      <CollapsibleContent>
+        <div className="space-y-0.5">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -84,7 +143,21 @@ export function AppSidebar() {
   const { workspaces, activeWorkspaceId, channels, activeChannelId, setActiveChannel, presence } = useChatStore();
   const openDialog = useUiStore((s) => s.openDialog);
   const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
+  const collapsed = useUiStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const { resolvedTheme, setTheme } = useTheme();
+
+  // Ctrl/Cmd+B collapses the sidebar
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        useUiStore.getState().toggleSidebar();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: () => api.me().catch(() => null) });
 
@@ -125,81 +198,121 @@ export function AppSidebar() {
   const channelList = channels.filter((c) => c.type === "public" || c.type === "private");
 
   return (
-    <aside className="w-[260px] shrink-0 bg-[var(--sidebar-muted)] text-[var(--sidebar-foreground)] hidden md:flex flex-col border-r border-[var(--sidebar-border)]">
+    <aside
+      className={cn(
+        "shrink-0 bg-[var(--sidebar-muted)] text-[var(--sidebar-foreground)] hidden md:flex flex-col border-r border-[var(--sidebar-border)] transition-[width] duration-200",
+        collapsed ? "w-[56px]" : "w-[260px]"
+      )}
+    >
       {/* header: workspace switcher + actions */}
-      <div className="h-14 px-3 flex items-center gap-1 border-b border-[var(--sidebar-border)]">
-        <WorkspaceSwitcher />
-        <Popover open={notifsOpen} onOpenChange={setNotifsOpen}>
-          <PopoverTrigger asChild>
+      <div className={cn("h-14 flex items-center gap-1 border-b border-[var(--sidebar-border)] shrink-0", collapsed ? "flex-col justify-center px-1 py-2 h-auto" : "px-2")}>
+        {collapsed ? (
+          <>
             <button
-              className="relative h-7 w-7 shrink-0 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 flex items-center justify-center"
-              title="Notifications"
+              onClick={toggleSidebar}
+              title="Expand sidebar (Ctrl+B)"
+              className="h-7 w-7 rounded-lg bg-sidebar-foreground/10 hover:bg-sidebar-foreground/15 border border-sidebar-foreground/10 flex items-center justify-center text-sidebar-foreground/60"
             >
-              <Bell className="h-3.5 w-3.5" />
-              {(notifData?.unread ?? 0) > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] text-[10px] font-bold flex items-center justify-center">
-                  {notifData!.unread > 9 ? "9+" : notifData!.unread}
-                </span>
-              )}
+              <PanelLeftOpen className="h-3.5 w-3.5" />
             </button>
-          </PopoverTrigger>
-          <PopoverContent side="bottom" align="end" className="w-80 p-0">
-            <div className="px-3 py-2 flex items-center justify-between border-b border-[var(--border)]">
-              <span className="text-xs font-semibold tracking-widest text-[var(--muted-foreground)]">NOTIFICATIONS</span>
-              {(notifData?.unread ?? 0) > 0 && (
-                <button
-                  onClick={async () => { await api.markAllNotificationsRead(); qc.invalidateQueries({ queryKey: ["notifications"] }); }}
-                  className="text-xs text-[var(--primary)] underline underline-offset-2"
-                >
-                  Mark all read
-                </button>
-              )}
-            </div>
-            <div className="max-h-72 overflow-y-auto">
-              {(notifData?.items ?? []).length === 0 && (
-                <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">Nothing yet. Mentions, DMs and thread replies land here.</div>
-              )}
-              {(notifData?.items ?? []).map((n: any) => (
-                <button
-                  key={n.id}
-                  onClick={async () => {
-                    setNotifsOpen(false);
-                    if (!n.read) { await api.markNotificationRead(n.id); qc.invalidateQueries({ queryKey: ["notifications"] }); }
-                    if (n.channelId) setActiveChannel(n.channelId);
-                  }}
-                  className={`w-full text-left px-3 py-2 border-t border-[var(--border)] first:border-t-0 hover:bg-[var(--muted)] ${n.read ? "opacity-50" : ""}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded ${n.type === "mention" ? "bg-[var(--primary)] text-[var(--primary-foreground)]" : n.type === "dm" ? "bg-emerald-600 text-white" : "bg-[var(--muted)] text-[var(--foreground)]"}`}>
-                      {n.type}
-                    </span>
-                    <span className="text-xs truncate flex-1">{n.title}</span>
-                    {!n.read && <span className="h-2 w-2 rounded-full bg-[var(--accent)] shrink-0" />}
-                  </div>
-                  {n.body && <div className="mt-1 text-xs text-[var(--muted-foreground)] line-clamp-2">{n.body}</div>}
-                </button>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
+            <WorkspaceSwitcher rail />
+          </>
+        ) : (
+          <>
+            <WorkspaceSwitcher />
+            <button
+              onClick={toggleSidebar}
+              title="Collapse sidebar (Ctrl+B)"
+              className="h-7 w-7 shrink-0 rounded-lg bg-sidebar-foreground/10 hover:bg-sidebar-foreground/15 border border-sidebar-foreground/10 flex items-center justify-center text-sidebar-foreground/60"
+            >
+              <PanelLeftClose className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
+        {!collapsed && (
+          <Popover open={notifsOpen} onOpenChange={setNotifsOpen}>
+            <PopoverTrigger asChild>
+              <button
+                className="relative h-7 w-7 shrink-0 rounded-lg bg-sidebar-foreground/10 hover:bg-sidebar-foreground/15 border border-sidebar-foreground/10 flex items-center justify-center"
+                title="Notifications"
+              >
+                <Bell className="h-3.5 w-3.5" />
+                {(notifData?.unread ?? 0) > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] text-[10px] font-bold flex items-center justify-center">
+                    {notifData!.unread > 9 ? "9+" : notifData!.unread}
+                  </span>
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="end" className="w-80 p-0">
+              <div className="px-3 py-2 flex items-center justify-between border-b border-[var(--border)]">
+                <span className="text-xs font-semibold tracking-widest text-[var(--muted-foreground)]">NOTIFICATIONS</span>
+                {(notifData?.unread ?? 0) > 0 && (
+                  <button
+                    onClick={async () => { await api.markAllNotificationsRead(); qc.invalidateQueries({ queryKey: ["notifications"] }); }}
+                    className="text-xs text-[var(--primary)] underline underline-offset-2"
+                  >
+                    Mark all read
+                  </button>
+                )}
+              </div>
+              <div className="max-h-72 overflow-y-auto">
+                {(notifData?.items ?? []).length === 0 && (
+                  <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">Nothing yet. Mentions, DMs and thread replies land here.</div>
+                )}
+                {(notifData?.items ?? []).map((n: any) => (
+                  <button
+                    key={n.id}
+                    onClick={async () => {
+                      setNotifsOpen(false);
+                      if (!n.read) { await api.markNotificationRead(n.id); qc.invalidateQueries({ queryKey: ["notifications"] }); }
+                      if (n.channelId) setActiveChannel(n.channelId);
+                    }}
+                    className={`w-full text-left px-3 py-2 border-t border-[var(--border)] first:border-t-0 hover:bg-[var(--muted)] ${n.read ? "opacity-50" : ""}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded ${n.type === "mention" ? "bg-[var(--primary)] text-[var(--primary-foreground)]" : n.type === "dm" ? "bg-emerald-600 text-white" : "bg-[var(--muted)] text-[var(--foreground)]"}`}>
+                        {n.type}
+                      </span>
+                      <span className="text-xs truncate flex-1">{n.title}</span>
+                      {!n.read && <span className="h-2 w-2 rounded-full bg-[var(--accent)] shrink-0" />}
+                    </div>
+                    {n.body && <div className="mt-1 text-xs text-[var(--muted-foreground)] line-clamp-2">{n.body}</div>}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
 
       {/* search → command palette */}
-      <div className="px-3 pt-3">
-        <button
-          onClick={() => setPaletteOpen(true)}
-          className="w-full flex items-center gap-2 h-8 rounded-lg bg-white/5 border border-white/10 px-2.5 text-xs text-white/40 hover:bg-white/10 hover:text-white/60 transition-colors"
-        >
-          <Search className="h-3.5 w-3.5" />
-          <span className="flex-1 text-left">Search or jump to…</span>
-          <Kbd className="bg-white/10 border-white/10 text-white/50">Ctrl P</Kbd>
-        </button>
-      </div>
+      {collapsed ? (
+        <div className="pt-3 flex justify-center">
+          <button
+            onClick={() => setPaletteOpen(true)}
+            title="Search (Ctrl+P)"
+            className="h-8 w-8 rounded-lg bg-sidebar-foreground/5 border border-sidebar-foreground/10 flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground/70"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <div className="px-2 pt-3">
+          <button
+            onClick={() => setPaletteOpen(true)}
+            className="w-full flex items-center gap-2 h-8 rounded-lg bg-sidebar-foreground/5 border border-sidebar-foreground/10 px-2.5 text-xs text-sidebar-foreground/40 hover:bg-sidebar-foreground/10 hover:text-sidebar-foreground/60 transition-colors"
+          >
+            <Search className="h-3.5 w-3.5" />
+            <span className="flex-1 text-left">Search or jump to…</span>
+            <Kbd className="bg-sidebar-foreground/10 border-sidebar-foreground/10 text-sidebar-foreground/50">Ctrl P</Kbd>
+          </button>
+        </div>
+      )}
 
       {/* scrollable sections */}
-      <div className="flex-1 overflow-y-auto pb-2 px-2 space-y-0.5">
-        <SectionHeader label="CHANNELS" onAdd={() => openDialog("createChannel")} addTitle="Create a channel" />
-        <div className="space-y-0.5">
+      <div className={cn("flex-1 overflow-y-auto pb-2", collapsed ? "px-1" : "px-2")}>
+        <CollapsibleSection sectionKey="channels" label="CHANNELS" rail={collapsed} onAdd={() => openDialog("createChannel")} addTitle="Create a channel">
           {channelList.map((c) => (
             <SidebarButton
               key={c.id}
@@ -207,68 +320,85 @@ export function AppSidebar() {
               onClick={() => setActiveChannel(c.id)}
               unread={!c.lastReadMessageId}
               title={c.name}
+              rail={collapsed}
             >
               {c.type === "private" ? <Lock className="h-3.5 w-3.5 opacity-70 shrink-0" /> : <Hash className="h-3.5 w-3.5 opacity-70 shrink-0" />}
-              <span className="truncate flex-1">{c.name}</span>
+              {!collapsed && <span className="truncate flex-1">{c.name}</span>}
             </SidebarButton>
           ))}
-          {channelList.length === 0 && (
-            <div className="px-2 text-xs text-white/40">No channels yet.</div>
+          {channelList.length === 0 && !collapsed && (
+            <div className="px-2 text-xs text-sidebar-foreground/40">No channels yet.</div>
           )}
-        </div>
+        </CollapsibleSection>
 
-        <SectionHeader label="DIRECT MESSAGES" onAdd={() => openDialog("newDm")} addTitle="New direct message" />
-        <div className="space-y-0.5">
-          {dmCandidates.length === 0 && (
-            <div className="px-2 text-xs text-white/40">No other members yet.</div>
+        <CollapsibleSection sectionKey="dms" label="DIRECT MESSAGES" rail={collapsed} onAdd={() => openDialog("newDm")} addTitle="New direct message">
+          {dmCandidates.length === 0 && !collapsed && (
+            <div className="px-2 text-xs text-sidebar-foreground/40">No other members yet.</div>
           )}
           {dmCandidates.map((m: any) => (
-            <SidebarButton key={m.id} active={activeChannelId === dmChannelId(channels, m.id)} onClick={() => openDm(m.id)} title={m.name}>
+            <SidebarButton key={m.id} active={activeChannelId === dmChannelId(channels, m.id)} onClick={() => openDm(m.id)} title={m.name} rail={collapsed}>
               <Avatar className="h-6 w-6">
                 <AvatarFallback className="text-[9px] bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] text-[var(--primary-foreground)]">
                   {String(m.name).slice(0, 2).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              <span className="truncate flex-1">{m.name}</span>
-              <span className={`h-2 w-2 rounded-full shrink-0 ${presence[m.id] === "online" ? "bg-emerald-500" : "bg-white/15"}`} />
+              {!collapsed && (
+                <>
+                  <span className="truncate flex-1">{m.name}</span>
+                  <span className={cn("h-2 w-2 rounded-full shrink-0", presence[m.id] === "online" ? "bg-emerald-500" : "bg-sidebar-foreground/15")} />
+                </>
+              )}
+              {collapsed && presence[m.id] === "online" && <span className="absolute bottom-0.5 right-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-[var(--sidebar-muted)]" />}
             </SidebarButton>
           ))}
-        </div>
+        </CollapsibleSection>
 
-        <SectionHeader label="AI MODELS" onAdd={() => openDialog("llmManager")} addTitle="Connect / manage models" />
-        <div className="space-y-0.5">
-          {((llmConnections as any[]) ?? []).length === 0 && (
-            <div className="px-2 text-xs text-white/40">No models connected.</div>
+        <CollapsibleSection sectionKey="ai" label="AI MODELS" rail={collapsed} onAdd={() => openDialog("llmManager")} addTitle="Connect / manage models">
+          {((llmConnections as any[]) ?? []).length === 0 && !collapsed && (
+            <div className="px-2 text-xs text-sidebar-foreground/40">No models connected.</div>
           )}
           {((llmConnections as any[]) ?? []).map((c: any) => (
-            <SidebarButton key={c.id} onClick={() => openLlmDm(c.id)} title={`${c.modelId} — open chat`}>
+            <SidebarButton key={c.id} onClick={() => openLlmDm(c.id)} title={`${c.modelId} — open chat`} rail={collapsed}>
               <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)] shrink-0">
                 <Sparkles className="h-3 w-3" />
               </span>
-              <span className="truncate flex-1">{c.label}</span>
-              <span className={`ml-auto h-2 w-2 rounded-full shrink-0 ${c.status === "ok" ? "bg-emerald-500" : c.status === "error" ? "bg-red-500" : "bg-amber-500"}`} />
+              {!collapsed && (
+                <>
+                  <span className="truncate flex-1">{c.label}</span>
+                  <span className={cn("h-2 w-2 rounded-full shrink-0", c.status === "ok" ? "bg-emerald-500" : c.status === "error" ? "bg-red-500" : "bg-amber-500")} />
+                </>
+              )}
+              {collapsed && <span className={cn("absolute bottom-0.5 right-0.5 h-2 w-2 rounded-full ring-2 ring-[var(--sidebar-muted)]", c.status === "ok" ? "bg-emerald-500" : c.status === "error" ? "bg-red-500" : "bg-amber-500")} />}
             </SidebarButton>
           ))}
-        </div>
+        </CollapsibleSection>
       </div>
-
-      {/* notifications popover moved to header bell */}
 
       {/* account */}
       {(me as any)?.id && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 p-3 border-t border-[var(--sidebar-border)] bg-black/10 text-left hover:bg-black/20 transition-colors">
+            <button
+              className={cn(
+                "flex items-center gap-2 border-t border-[var(--sidebar-border)] bg-sidebar-foreground/5 text-left hover:bg-sidebar-foreground/10 transition-colors shrink-0",
+                collapsed ? "justify-center p-2" : "p-3"
+              )}
+              title={(me as any).name}
+            >
               <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] text-[var(--primary-foreground)] text-xs font-bold">
                   {String((me as any).name ?? "U").slice(0, 2).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              <span className="flex-1 min-w-0">
-                <span className="block text-sm font-medium truncate">{(me as any).name ?? (me as any).email ?? "User"}</span>
-                <span className="block text-xs text-emerald-300 flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Online</span>
-              </span>
-              <ChevronDown className="h-4 w-4 text-white/40 shrink-0" />
+              {!collapsed && (
+                <>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-medium truncate">{(me as any).name ?? (me as any).email ?? "User"}</span>
+                    <span className="block text-xs text-emerald-600 dark:text-emerald-300 flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Online</span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 text-sidebar-foreground/40 shrink-0" />
+                </>
+              )}
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" side="top" className="w-52">
