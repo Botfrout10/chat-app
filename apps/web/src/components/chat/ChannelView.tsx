@@ -29,6 +29,7 @@ import {
   ContextContentFooter,
   ContextContentHeader,
   ContextInputUsage,
+  ContextOutputUsage,
   ContextTrigger,
 } from "@/components/ai-elements/context";
 import {
@@ -78,7 +79,7 @@ function ChatComposer({
   replyTo: string | null;
   onCancelReply: () => void;
   busy: boolean;
-  contextInfo?: { usedTokens: number; maxTokens: number } | null;
+  contextInfo?: { usedTokens: number; maxTokens: number; modelId?: string } | null;
 }) {
   return (
     <PromptInput onSubmit={onSubmit} multiple globalDrop>
@@ -113,6 +114,7 @@ function ChatComposer({
             <Context
               usedTokens={contextInfo.usedTokens}
               maxTokens={contextInfo.maxTokens}
+              modelId={contextInfo.modelId}
               usage={{
                 inputTokens: contextInfo.usedTokens,
                 inputTokenDetails: { noCacheTokens: contextInfo.usedTokens, cacheReadTokens: 0, cacheWriteTokens: 0 },
@@ -121,25 +123,14 @@ function ChatComposer({
                 totalTokens: contextInfo.usedTokens,
               }}
             >
-              <ContextTrigger>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  title="AI context usage"
-                  className="rounded-full border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)]/40"
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                </Button>
-              </ContextTrigger>
+              <ContextTrigger />
               <ContextContent align="start">
                 <ContextContentHeader />
                 <ContextContentBody>
                   <ContextInputUsage />
+                  <ContextOutputUsage />
                 </ContextContentBody>
-                <ContextContentFooter className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
-                  Context estimate (~4 chars/token). Actual window depends on the provider model.
-                </ContextContentFooter>
+                <ContextContentFooter />
               </ContextContent>
             </Context>
           )}
@@ -444,6 +435,10 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     const n = typeof fromCap === "number" ? fromCap : Number(fromCap);
     return Number.isFinite(n) && n > 0 ? n : 8192;
   }, [llmConnections, llmConnectionIdForChannel]);
+  const modelId = useMemo(() => {
+    const conn = (llmConnections as any[])?.find((c: any) => c.id === llmConnectionIdForChannel);
+    return (conn?.modelId as string | undefined) ?? undefined;
+  }, [llmConnections, llmConnectionIdForChannel]);
   const isAiChannel = !!llmConnectionIdForChannel;
 
   if (isLoading) return <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading messages…</div>;
@@ -458,18 +453,13 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           <span className="h-6 w-6 rounded-lg bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)]">{isDm ? <AtSign className="h-3.5 w-3.5" /> : <Hash className="h-3.5 w-3.5" />}</span>
           <span className="text-sm font-semibold text-[var(--foreground)] truncate">{title}</span>
           <span className="text-xs text-[var(--muted-foreground)] shrink-0">{allMessages.length} messages</span>
-          {isAiChannel && (
-            <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)]" title="Estimated context usage">
-              <Sparkles className="h-3 w-3 text-[var(--primary)]" />
-              {Math.round((estContextTokens / maxTokens) * 100)}% context
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-2">
           {isAiChannel && (
             <Context
               usedTokens={estContextTokens}
               maxTokens={maxTokens}
+              modelId={modelId}
               usage={{
                 inputTokens: estContextTokens,
                 inputTokenDetails: { noCacheTokens: estContextTokens, cacheReadTokens: 0, cacheWriteTokens: 0 },
@@ -478,26 +468,14 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
                 totalTokens: estContextTokens,
               }}
             >
-              <ContextTrigger>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  title="AI context usage"
-                  className="rounded-full border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)]/40 h-7 px-2.5 gap-1.5"
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span className="text-xs font-medium">Context</span>
-                </Button>
-              </ContextTrigger>
+              <ContextTrigger />
               <ContextContent align="end">
                 <ContextContentHeader />
                 <ContextContentBody>
                   <ContextInputUsage />
+                  <ContextOutputUsage />
                 </ContextContentBody>
-                <ContextContentFooter className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
-                  Context estimate (~4 chars/token). Actual window depends on the provider model.
-                </ContextContentFooter>
+                <ContextContentFooter />
               </ContextContent>
             </Context>
           )}
@@ -591,7 +569,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
           busy={uploading}
-          contextInfo={isAiChannel ? { usedTokens: estContextTokens, maxTokens } : null}
+          contextInfo={isAiChannel ? { usedTokens: estContextTokens, maxTokens, modelId } : null}
         />
         <div className="mt-1 text-xs text-[var(--muted-foreground)] hidden sm:block">Markdown • @mention • images preview inline</div>
       </div>

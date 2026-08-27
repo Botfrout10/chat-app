@@ -256,15 +256,14 @@ export const ContextInputUsage = ({
   ...props
 }: ContextInputUsageProps) => {
   const { usage, modelId } = useContextValue();
-  const inputTokens = usage?.inputTokens ?? 0;
-
   if (children) {
     return children;
   }
 
-  if (!inputTokens) {
+  if (usage?.inputTokens == null) {
     return null;
   }
+  const inputTokens = usage.inputTokens;
 
   const inputCost = modelId
     ? getUsage({
@@ -296,15 +295,14 @@ export const ContextOutputUsage = ({
   ...props
 }: ContextOutputUsageProps) => {
   const { usage, modelId } = useContextValue();
-  const outputTokens = usage?.outputTokens ?? 0;
-
   if (children) {
     return children;
   }
 
-  if (!outputTokens) {
+  if (usage?.outputTokens == null) {
     return null;
   }
+  const outputTokens = usage.outputTokens;
 
   const outputCost = modelId
     ? getUsage({
