@@ -107,7 +107,13 @@ export default function Chats() {
 
   const channels = channelsQuery.data ?? [];
   const channelList = channels.filter((c) => !isDmLike(c));
-  const dmList = channels.filter(isDmLike);
+  const globalDmsQuery = useQuery({
+    queryKey: ["dms"],
+    queryFn: () => (api as any).globalDms(),
+    enabled: !!activeWorkspaceId,
+    refetchInterval: 30_000,
+  });
+  const dmList = ((globalDmsQuery.data as any) ?? []) as Channel[];
 
   const [collapsed, setCollapsed] = useState({ channels: false, models: false, dms: false });
   const toggle = (k: keyof typeof collapsed) => setCollapsed((s) => ({ ...s, [k]: !s[k] }));
@@ -157,13 +163,17 @@ export default function Chats() {
     await Promise.all([
       workspacesQuery.refetch(),
       activeWorkspaceId ? channelsQuery.refetch() : Promise.resolve(),
+      globalDmsQuery.refetch(),
       notificationsQuery.refetch(),
     ]);
   }
 
   async function handleDmCreated(channelId: string, name: string) {
     closeModal();
-    await queryClient.invalidateQueries({ queryKey: ["channels", activeWorkspaceId] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["channels", activeWorkspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ["dms"] }),
+    ]);
     router.push({ pathname: "/channel/[id]", params: { id: channelId, name, type: "dm" } });
   }
 
@@ -279,7 +289,7 @@ export default function Chats() {
           ) : (
             <Section
               title={`Direct messages${dmList.length ? ` — ${dmList.length}` : ""}`}
-              actionLabel="New"
+              actionLabel="Add friend"
               onAction={() => setModal("dm")}
               collapsed={collapsed.dms}
               onToggle={() => toggle("dms")}
@@ -293,8 +303,8 @@ export default function Chats() {
                   onPress={() => openChannel(c)}
                 />
               ))}
-              {!collapsed.dms && !dmList.length && !channelsQuery.isPending && (
-                <Empty text="No DMs yet — start one from a member" />
+              {!collapsed.dms && !dmList.length && !globalDmsQuery.isPending && (
+                <Empty text="No friends yet. Add a friend to start." />
               )}
             </Section>
           )
@@ -401,81 +411,64 @@ function DmPickerModal({
 }) {
   const t = useTheme();
   const queryClient = useQueryClient();
+  const [query, setQuery] = useState("");
   const membersQuery = useMembers(visible ? workspaceId : null);
   const [error, setError] = useState<string | null>(null);
-  const [invite, setInvite] = useState("");
 
-  const inviteMutation = useMutation({
-    mutationFn: () => api.addMember(workspaceId!, invite.trim()),
-    onSuccess: (added) => {
-      setInvite("");
-      setError(null);
-      queryClient.invalidateQueries({ queryKey: ["members", workspaceId] });
-      void added;
-    },
-    onError: (e) => {
-      const raw = e instanceof Error ? e.message : "Failed to add member";
-      // not a registered user — fall back to email invite
-      if (/USER_NOT_FOUND|No registered user/i.test(raw)) {
-        inviteMutation.reset();
-        api.invite(workspaceId!, invite.trim(), "member")
-          .then(() => {
-            setInvite("");
-            setError(null);
-            queryClient.invalidateQueries({ queryKey: ["members", workspaceId] });
-          })
-          .catch((e2) => setError(e2 instanceof Error ? e2.message.slice(0, 160) : "Failed to send invite"));
-        return;
-      }
-      setError(raw.slice(0, 160));
-    },
+  const isEmailLike = query.includes("@") && query.includes(".");
+  const globalSearchQuery = useQuery({
+    queryKey: ["user-search", query],
+    queryFn: () => api.searchUsers(query),
+    enabled: visible && query.trim().length >= 2,
   });
 
+  const workspaceCandidates = (membersQuery.data ?? []).filter((m: any) => !query || `${m.name} ${m.email}`.toLowerCase().includes(query.toLowerCase()));
+  const globalCandidates = (() => {
+    const list = (globalSearchQuery.data ?? []) as any[];
+    const wsIds = new Set((membersQuery.data ?? []).map((m: any) => m.id));
+    return list.filter((u: any) => !wsIds.has(u.id));
+  })();
+
+  const showEmailAdd = isEmailLike && query.trim().length >= 5;
+
   const dmMutation = useMutation({
-    mutationFn: (userId: string) => api.findOrCreateDm(workspaceId!, userId),
-    onSuccess: (channel) => onCreated(channel.id, channelTitle(channel)),
-    onError: (e) => setError(e instanceof Error ? e.message : "Failed to open DM"),
+    mutationFn: async (target: { userId?: string; email?: string }) => {
+      // best column is email (unique) for global fallback
+      if (target.email) return (api as any).createGlobalDm({ email: target.email, workspaceId: workspaceId ?? undefined });
+      return (api as any).createGlobalDm({ userId: target.userId!, workspaceId: workspaceId ?? undefined });
+    },
+    onSuccess: (channel: any) => {
+      setQuery("");
+      setError(null);
+      onCreated(channel.id, channelTitle(channel));
+      queryClient.invalidateQueries({ queryKey: ["dms"] });
+      queryClient.invalidateQueries({ queryKey: ["channels", workspaceId] });
+    },
+    onError: (e: any) => setError(e instanceof Error ? e.message.slice(0, 160) : "Failed to open DM"),
   });
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.modalBackdrop} onPress={onClose}>
         <Pressable style={[styles.modalCard, { backgroundColor: t.card }]}>
-          <Text style={[styles.modalTitle, { color: t.foreground }]}>Start a conversation</Text>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <TextInput
-              style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground, flex: 1 }]}
-              placeholder="Add by name or email…"
-              placeholderTextColor={t.mutedForeground}
-              autoCapitalize="none"
-              autoCorrect={false}
-              value={invite}
-              onChangeText={setInvite}
-              onSubmitEditing={() => invite.trim() && inviteMutation.mutate()}
-            />
-            <Pressable
-              accessibilityRole="button"
-              disabled={inviteMutation.isPending || !invite.trim()}
-              onPress={() => inviteMutation.mutate()}
-              style={({ pressed }) => [
-                styles.primaryBtn,
-                { backgroundColor: t.primary, paddingHorizontal: 14, paddingVertical: 0, opacity: pressed ? 0.8 : 1 },
-              ]}
-            >
-              {inviteMutation.isPending ? (
-                <ActivityIndicator color={t.primaryForeground} size="small" />
-              ) : (
-                <Ionicons name="person-add-outline" size={18} color={t.primaryForeground} />
-              )}
-            </Pressable>
-          </View>
+          <Text style={[styles.modalTitle, { color: t.foreground }]}>Add friend</Text>
+          <Text style={{ color: t.mutedForeground, fontSize: 12, marginBottom: 8 }}>Search workspace members or type exact email to add globally.</Text>
+          <TextInput
+            style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground }]}
+            placeholder="Search workspace or type exact email…"
+            placeholderTextColor={t.mutedForeground}
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={query}
+            onChangeText={setQuery}
+          />
           {!!error && <Text style={{ color: t.destructive, fontSize: 12 }}>{error}</Text>}
-          {membersQuery.isPending && <ActivityIndicator color={t.primary} />}
-          {(membersQuery.data ?? []).map((m) => (
+          {membersQuery.isPending && !query && <ActivityIndicator color={t.primary} style={{ marginTop: 8 }} />}
+          {!query && (membersQuery.data ?? []).map((m: any) => (
             <Pressable
               key={m.id}
               disabled={dmMutation.isPending}
-              onPress={() => dmMutation.mutate(m.id)}
+              onPress={() => dmMutation.mutate({ userId: m.id })}
               style={({ pressed }) => [
                 styles.wsRow,
                 { borderWidth: 0, paddingVertical: 8, opacity: pressed ? 0.6 : 1 },
@@ -488,13 +481,69 @@ function DmPickerModal({
                 <Text style={[styles.rowTitle, { color: t.foreground }]}>{m.name}</Text>
                 <Text style={{ color: t.mutedForeground, fontSize: 12 }}>{m.email}</Text>
               </View>
-              {dmMutation.isPending && dmMutation.variables === m.id && (
-                <ActivityIndicator color={t.primary} size="small" />
-              )}
+              {dmMutation.isPending && <ActivityIndicator color={t.primary} size="small" />}
             </Pressable>
           ))}
-          {!membersQuery.isPending && !(membersQuery.data ?? []).length && (
-            <Text style={{ color: t.mutedForeground, fontSize: 13 }}>No other members yet</Text>
+          {!!query && workspaceCandidates.length > 0 && (
+            <>
+              <Text style={{ color: t.mutedForeground, fontSize: 11, fontWeight: "700", marginTop: 8 }}>WORKSPACE</Text>
+              {workspaceCandidates.map((m: any) => (
+                <Pressable
+                  key={m.id}
+                  disabled={dmMutation.isPending}
+                  onPress={() => dmMutation.mutate({ userId: m.id })}
+                  style={({ pressed }) => [styles.wsRow, { borderWidth: 0, paddingVertical: 8, opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <View style={[styles.wsAvatar, { backgroundColor: t.accent100 }]}>
+                    <Text style={{ color: t.accent700, fontWeight: "700" }}>{initials(m.name)}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.rowTitle, { color: t.foreground }]}>{m.name}</Text>
+                    <Text style={{ color: t.mutedForeground, fontSize: 12 }}>{m.email}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </>
+          )}
+          {!!query && globalCandidates.length > 0 && (
+            <>
+              <Text style={{ color: t.mutedForeground, fontSize: 11, fontWeight: "700", marginTop: 8 }}>GLOBAL SEARCH (email is best)</Text>
+              {globalCandidates.map((m: any) => (
+                <Pressable
+                  key={m.id}
+                  disabled={dmMutation.isPending}
+                  onPress={() => dmMutation.mutate({ userId: m.id })}
+                  style={({ pressed }) => [styles.wsRow, { borderWidth: 0, paddingVertical: 8, opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <View style={[styles.wsAvatar, { backgroundColor: t.accent100 }]}>
+                    <Text style={{ color: t.accent700, fontWeight: "700" }}>{initials(m.name)}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.rowTitle, { color: t.foreground }]}>{m.name}</Text>
+                    <Text style={{ color: t.mutedForeground, fontSize: 12 }}>{m.email}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </>
+          )}
+          {showEmailAdd && (
+            <Pressable
+              disabled={dmMutation.isPending}
+              onPress={() => dmMutation.mutate({ email: query.trim() })}
+              style={({ pressed }) => [styles.wsRow, { borderWidth: 1, borderColor: t.border, opacity: pressed ? 0.6 : 1, marginTop: 8 }]}
+            >
+              <View style={[styles.wsAvatar, { backgroundColor: t.muted }]}>
+                <Text style={{ color: t.foreground, fontWeight: "700" }}>+</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rowTitle, { color: t.foreground }]}>Add friend by email</Text>
+                <Text style={{ color: t.mutedForeground, fontSize: 12 }}>{query.trim()}</Text>
+              </View>
+              {dmMutation.isPending && <ActivityIndicator color={t.primary} size="small" />}
+            </Pressable>
+          )}
+          {!membersQuery.isPending && !globalSearchQuery.isPending && !workspaceCandidates.length && !globalCandidates.length && !showEmailAdd && !!query && (
+            <Text style={{ color: t.mutedForeground, fontSize: 13, marginTop: 8 }}>No users found. Try exact email.</Text>
           )}
         </Pressable>
       </Pressable>

@@ -151,6 +151,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ userId }),
     }),
+  globalDms: () => req<Channel[]>("/api/dms"),
+  createGlobalDm: (data: { userId?: string; email?: string; workspaceId?: string }) =>
+    req<Channel & { created: boolean }>("/api/dms", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 
   // channels
   channels: (wsId: string) => req<Channel[]>(`/api/workspaces/${wsId}/channels`),
