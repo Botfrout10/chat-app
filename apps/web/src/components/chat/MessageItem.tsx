@@ -125,9 +125,9 @@ function MessageItemInner({
           {isOwn && isAiChannel && aiReadStatus && <AiReadReceipt status={aiReadStatus} />}
         </div>
 
-        {/* replied in thread indicator — matches the mobile MessageBubble replyBar */}
+        {/* replied in thread indicator — matches the mobile MessageBubble replyBar (constrained to content width) */}
         {msg.parentId && (
-          <div className="border-l-2 border-[var(--accent)] pl-2 py-0.5 mb-1 text-[11px] text-[var(--muted-foreground)]">
+          <div className={`w-fit border-l-2 border-[var(--accent)] pl-2 py-0.5 mb-1 text-[11px] text-[var(--muted-foreground)] ${isOwn ? "self-end" : ""}`}>
             replied in thread
           </div>
         )}
