@@ -81,6 +81,18 @@ async function getSessionUser(req: any) {
   const headers = new Headers();
   if (req.headers.cookie) headers.set("cookie", req.headers.cookie);
   if (req.headers.authorization) headers.set("authorization", req.headers.authorization as string);
+  // Mobile <Image> cannot set Authorization header — allow ?token= bearer for
+  // attachment proxy fetches (GET /api/attachments/:key/raw). Query param is only
+  // checked here so image/file previews can authenticate without custom headers.
+  if (!req.headers.authorization && req.query?.token) {
+    headers.set("authorization", `Bearer ${String(req.query.token)}`);
+  } else if (!req.headers.authorization && req.url?.includes("token=")) {
+    try {
+      const u = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+      const t = u.searchParams.get("token");
+      if (t) headers.set("authorization", `Bearer ${t}`);
+    } catch {}
+  }
   const session = await auth.api.getSession({ headers });
   return session?.user ?? null;
 }

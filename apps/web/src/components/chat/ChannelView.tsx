@@ -7,9 +7,11 @@ import { useChatStore } from "@/store/chat";
 import { useUiStore } from "@/store/ui";
 import { MessageItem } from "./MessageItem";
 import { Button } from "@/components/ui/button";
-import { AtSign, BrainCircuit, CornerDownLeft, Hash, Sparkles } from "lucide-react";
+import { AtSign, BrainCircuit, CornerDownLeft, Hash, Sparkles, AlertTriangle, WifiOff, CheckCircle2, Loader2, Clock, RefreshCw } from "lucide-react";
 import type { FileUIPart } from "ai";
 import { useStickToBottomContext } from "use-stick-to-bottom";
+import { toast } from "sonner";
+import { ulid } from "ulid";
 import {
   Conversation,
   ConversationContent,
@@ -72,6 +74,7 @@ function PromptInputAttachmentsDisplay() {
 /** Preset-composed composer: attachments header, textarea, footer w/ attach menu + submit. */
 function ChatComposer({
   value, onValueChange, onKeyDown, onSubmit, replyTo, onCancelReply, busy,
+  disabled, placeholder, queuedCount,
 }: {
   value: string;
   onValueChange: (v: string) => void;
@@ -80,6 +83,9 @@ function ChatComposer({
   replyTo: string | null;
   onCancelReply: () => void;
   busy: boolean;
+  disabled?: boolean;
+  placeholder?: string;
+  queuedCount?: number;
 }) {
   return (
     <PromptInput onSubmit={onSubmit} multiple globalDrop>
@@ -99,19 +105,23 @@ function ChatComposer({
           value={value}
           onChange={(e) => onValueChange(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Message… (@ to mention, Enter to send, Shift+Enter for new line)"
+          disabled={disabled}
+          placeholder={placeholder ?? "Message… (@ to mention, Enter to send, Shift+Enter for new line)"}
         />
       </PromptInputBody>
       <PromptInputFooter>
         <PromptInputTools>
           <PromptInputActionMenu>
-            <PromptInputActionMenuTrigger title="Attach files" />
+            <PromptInputActionMenuTrigger title="Attach files" disabled={disabled} />
             <PromptInputActionMenuContent side="top" align="start">
               <PromptInputActionAddAttachments />
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
+          {queuedCount != null && queuedCount > 0 && (
+            <span className="ml-2 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"><Clock className="h-3 w-3" />{queuedCount} queued</span>
+          )}
         </PromptInputTools>
-        <PromptInputSubmit disabled={busy} title="Send" />
+        <PromptInputSubmit disabled={busy || disabled} title={disabled ? "Model offline — message will be queued" : "Send"} />
       </PromptInputFooter>
     </PromptInput>
   );
@@ -429,6 +439,131 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     return (conn?.botUserId as string | undefined) ?? (channel as any)?.dmPeer?.id ?? null;
   }, [isAiChannel, llmConnections, llmConnectionIdForChannel, channel]);
 
+  // --- AI model live status: auto-checked on open (not just manual Re-check) ---
+  const [pendingQueue, setPendingQueue] = useState<Array<{ id: string; text: string; files: FileUIPart[] }>>([]);
+  const {
+    data: llmStatusDetail,
+    isLoading: llmStatusInitialLoading,
+    isFetching: llmStatusFetching,
+    refetch: refetchLlmStatus,
+    error: llmStatusErrorRaw,
+  } = useQuery({
+    queryKey: ["llm-status", llmConnectionIdForChannel],
+    queryFn: () => api.llmConnectionStatus(llmConnectionIdForChannel!),
+    enabled: !!isAiChannel && !!llmConnectionIdForChannel,
+    retry: false,
+    staleTime: 10_000,
+  });
+  const llmStatusLoading = llmStatusInitialLoading || llmStatusFetching;
+  const statusConn: any = (llmStatusDetail as any)?.connection ?? null;
+  const providerReachable: boolean | null = (llmStatusDetail as any)?.providerReachable ?? null;
+  const providerModels: string[] | null = (llmStatusDetail as any)?.providerModels ?? null;
+  const fetchFailed = !!llmStatusErrorRaw;
+  const llmStatusError = (llmStatusErrorRaw as Error | null)?.message ?? statusConn?.lastError ?? null;
+  const modelInProvider = providerModels && modelId ? providerModels.includes(modelId) : null;
+
+  const isModelOffline = !!isAiChannel && !llmStatusLoading && (
+    fetchFailed ||
+    providerReachable === false ||
+    statusConn?.status === "error" ||
+    (providerModels !== null && modelId != null && modelInProvider === false)
+  );
+  const isModelOnline = !!isAiChannel && !llmStatusLoading && !isModelOffline && providerReachable === true;
+  const isModelChecking = !!isAiChannel && llmStatusLoading;
+
+  // poll while offline so queued messages flush automatically when provider returns
+  useEffect(() => {
+    if (!isAiChannel || !llmConnectionIdForChannel) return;
+    if (!isModelOffline) return;
+    const id = setInterval(() => { refetchLlmStatus(); }, 15_000);
+    return () => clearInterval(id);
+  }, [isAiChannel, llmConnectionIdForChannel, isModelOffline, refetchLlmStatus]);
+
+  // socket llm:error for this channel/connection → mark offline immediately
+  useEffect(() => {
+    if (!isAiChannel || !llmConnectionIdForChannel) return;
+    const s = getSocket();
+    const onError = (p: any) => {
+      if (p.channelId === channelId || p.connectionId === llmConnectionIdForChannel) {
+        refetchLlmStatus();
+      }
+    };
+    s.on("llm:error", onError);
+    return () => { s.off("llm:error", onError); };
+  }, [isAiChannel, llmConnectionIdForChannel, channelId, refetchLlmStatus]);
+
+  // keep sidebar dot fresh when live status diverges from cached connections
+  useEffect(() => {
+    if (!llmStatusDetail || !isAiChannel || !llmConnectionIdForChannel) return;
+    // patch the sidebar's llm-connections cache with live reachable state so the dot
+    // updates without waiting for a persisted verify (status endpoint doesn't write DB)
+    const liveStatus = providerReachable === false || fetchFailed || (providerModels !== null && modelId != null && modelInProvider === false) ? "error" : providerReachable ? "ok" : statusConn?.status;
+    const liveError = fetchFailed ? String((llmStatusErrorRaw as Error).message).slice(0, 240) : statusConn?.lastError ?? null;
+    qc.setQueryData(["llm-connections"], (prev: any) => {
+      if (!Array.isArray(prev)) return prev;
+      return prev.map((c: any) => c.id === llmConnectionIdForChannel ? { ...c, status: liveStatus ?? c.status, lastError: liveError ?? c.lastError } : c);
+    });
+  }, [llmStatusDetail, isAiChannel, llmConnectionIdForChannel, qc, providerReachable, fetchFailed, llmStatusErrorRaw, providerModels, modelId, modelInProvider, statusConn]);
+
+  // queued-send: when model comes back online, flush pending messages sequentially
+  const flushingRef = useRef(false);
+  useEffect(() => {
+    if (!isModelOnline || pendingQueue.length === 0 || flushingRef.current) return;
+    flushingRef.current = true;
+    const toSend = [...pendingQueue];
+    setPendingQueue([]);
+    (async () => {
+      for (const item of toSend) {
+        try {
+          const atts: { key: string; filename: string; mime: string; size: number }[] = [];
+          for (const f of item.files) atts.push(await uploadAttachmentPart(f));
+          await send(item.text, atts);
+        } catch (e: any) {
+          // re-queue failed item and stop flushing so user can retry after fixing provider
+          setPendingQueue((prev) => [{ ...item }, ...prev]);
+          toast.error(`Queued send failed: ${String(e.message ?? e).slice(0, 160)}`);
+          break;
+        }
+      }
+      flushingRef.current = false;
+      // one more status check after flushing in case provider died mid-flush
+      refetchLlmStatus();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isModelOnline, pendingQueue.length]);
+
+  async function handlePromptSubmitQueued({ text, files }: { text: string; files: FileUIPart[] }) {
+    if (!text.trim() && files.length === 0) return;
+    if (isAiChannel && isModelOffline) {
+      const id = ulid();
+      setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
+      toast.message("Model offline — message queued", { description: `Will send automatically when ${modelId ?? "the model"} is reachable.` });
+      return;
+    }
+    if (isAiChannel && isModelChecking) {
+      // still allow queuing while the initial reachability probe is in flight
+      // so the user isn't blocked on a 5s network round-trip
+      const id = ulid();
+      setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
+      toast.message("Checking model… message queued", { description: "Will send as soon as reachability is confirmed." });
+      return;
+    }
+    return handlePromptSubmit({ text, files });
+  }
+
+  function handleForceQueuedSend() {
+    if (pendingQueue.length === 0) return;
+    if (isModelOffline) {
+      toast.error("Model still offline — cannot flush queue yet.");
+      refetchLlmStatus();
+      return;
+    }
+    // trigger flush via state change — reuse effect by toggling a dummy
+    const copy = [...pendingQueue];
+    setPendingQueue([]);
+    setPendingQueue(copy);
+  }
+
   if (isLoading) return <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading messages…</div>;
 
   return (
@@ -471,6 +606,87 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           )}
         </div>
       </div>
+
+      {/* AI model reachability banner — auto-checked on chat open */}
+      {isAiChannel && (
+        <div
+          className={
+            isModelChecking
+              ? "flex items-center gap-2 px-4 py-2.5 text-xs border-b bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200"
+              : isModelOffline
+                ? "flex items-center gap-2 px-4 py-2.5 text-xs border-b bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900 text-red-800 dark:text-red-200"
+                : isModelOnline
+                  ? "flex items-center gap-2 px-4 py-2.5 text-xs border-b bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-200"
+                  : "hidden"
+          }
+        >
+          {isModelChecking ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+              <span>Checking <span className="font-mono font-semibold">{modelId ?? "model"}</span> reachability…</span>
+            </>
+          ) : isModelOffline ? (
+            <>
+              <WifiOff className="h-3.5 w-3.5 shrink-0" />
+              <span className="flex-1 min-w-0 truncate">
+                <span className="font-semibold">Model offline</span>
+                {providerReachable === false
+                  ? " — provider unreachable"
+                  : statusConn?.lastError
+                    ? ` — ${String(statusConn.lastError).slice(0, 120)}`
+                    : modelInProvider === false
+                      ? ` — model "${modelId}" not loaded on provider`
+                      : " — not reachable"}
+                {pendingQueue.length > 0 && (
+                  <span className="ml-1">· {pendingQueue.length} message{pendingQueue.length > 1 ? "s" : ""} queued</span>
+                )}
+              </span>
+              <Button variant="outline" size="sm" onClick={() => refetchLlmStatus()} className="h-7 text-xs shrink-0 bg-white dark:bg-transparent">
+                <RefreshCw className={`h-3 w-3 ${llmStatusFetching ? "animate-spin" : ""}`} /> Re-check
+              </Button>
+            </>
+          ) : isModelOnline ? (
+            <>
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                <span className="font-semibold">Model online</span> — <span className="font-mono">{modelId}</span> reachable
+              </span>
+              <span className="ml-auto h-2 w-2 rounded-full bg-emerald-500 shrink-0" title="Reachable" />
+            </>
+          ) : null}
+          {!isModelChecking && llmStatusError && isModelOffline && (
+            <span className="hidden" aria-hidden>{llmStatusError}</span>
+          )}
+        </div>
+      )}
+      {isAiChannel && pendingQueue.length > 0 && (
+        <div className="mx-3 mt-2 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/20 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+              <Clock className="h-3.5 w-3.5" /> {pendingQueue.length} queued message{pendingQueue.length > 1 ? "s" : ""} — will send when model is back
+            </span>
+            <div className="flex gap-1">
+              <Button variant="ghost" size="sm" onClick={() => setPendingQueue([])} className="h-7 text-xs">
+                Clear queue
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleForceQueuedSend} disabled={isModelOffline} className="h-7 text-xs">
+                Send now
+              </Button>
+            </div>
+          </div>
+          <ul className="mt-1.5 space-y-1 max-h-20 overflow-y-auto">
+            {pendingQueue.map((q) => (
+              <li key={q.id} className="flex items-start gap-2 text-xs text-amber-900 dark:text-amber-100">
+                <span className="mt-0.5 h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                <span className="flex-1 truncate">{q.text.slice(0, 80) || "(attachment)"}{q.files.length > 0 ? ` · ${q.files.length} file(s)` : ""}</span>
+                <button onClick={() => setPendingQueue((prev) => prev.filter((x) => x.id !== q.id))} className="text-amber-700 dark:text-amber-300 hover:underline shrink-0">
+                  remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <Conversation className="min-h-0 bg-[var(--background)]">
         <AtBottomSync isAtBottomRef={isAtBottomRef} />
@@ -580,12 +796,29 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
             }
             if (e.key === "Escape") setAc({ open: false, q: "" });
           }}
-          onSubmit={handlePromptSubmit}
+          onSubmit={handlePromptSubmitQueued}
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
           busy={uploading}
+          disabled={false}
+          placeholder={
+            isAiChannel
+              ? isModelChecking
+                ? "Checking model status — message will be queued…"
+                : isModelOffline
+                  ? `Model offline — message will be queued (${pendingQueue.length} queued)…`
+                  : undefined
+              : undefined
+          }
+          queuedCount={isAiChannel ? pendingQueue.length : undefined}
         />
-        <div className="mt-1 text-xs text-[var(--muted-foreground)] hidden sm:block">Markdown • @mention • images preview inline</div>
+        <div className="mt-1 text-xs text-[var(--muted-foreground)] hidden sm:block">
+          {isAiChannel && isModelOffline ? (
+            <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400"><AlertTriangle className="h-3 w-3" /> Model offline — messages queued until reachable · <button onClick={() => refetchLlmStatus()} className="underline">Re-check now</button></span>
+          ) : (
+            <>Markdown • @mention • images preview inline</>
+          )}
+        </div>
       </div>
     </div>
   );

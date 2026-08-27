@@ -2,20 +2,25 @@ import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 
-import { api, rewriteAssetUrl } from "@/api/client";
+import { api } from "@/api/client";
 import { useTheme } from "@/theme/useTheme";
 import type { Attachment } from "@/types";
 
 const IMAGE_RE = /^image\//;
 
-/** Presigned GET URL for an attachment key (valid 1h server-side). */
+/** Proxied GET via API — stable, no MinIO host/signature rewrite needed. */
 export function useSignedUrl(key: string | null) {
   return useQuery({
-    queryKey: ["signed", key],
-    queryFn: () => api.signedUrl(key!),
+    queryKey: ["attachment-raw", key],
+    queryFn: () => api.rawUrl(key!),
     enabled: !!key,
     staleTime: 55 * 60 * 1000,
   });
+}
+
+/** Backwards compat — older code imported useSignedUrl expecting { url }. */
+export function useRawUrl(key: string | null) {
+  return useSignedUrl(key);
 }
 
 export function Attachments({ attachments }: { attachments: Attachment[] }) {
@@ -36,7 +41,8 @@ export function Attachments({ attachments }: { attachments: Attachment[] }) {
 function AttachmentImage({ attachment }: { attachment: Attachment }) {
   const t = useTheme();
   const signed = useSignedUrl(attachment.key);
-  const url = signed.data?.url ? rewriteAssetUrl(signed.data.url) : null;
+  // useSignedUrl now returns a plain string URL (proxied via API), not { url }
+  const url = typeof signed.data === "string" ? (signed.data as string) : (signed.data as any)?.url ?? null;
 
   if (signed.isError) {
     return (
@@ -82,7 +88,7 @@ function formatSize(bytes: number): string {
 function AttachmentFile({ attachment }: { attachment: Attachment }) {
   const t = useTheme();
   const signed = useSignedUrl(attachment.key);
-  const url = signed.data?.url ? rewriteAssetUrl(signed.data.url) : null;
+  const url = typeof signed.data === "string" ? (signed.data as string) : (signed.data as any)?.url ?? null;
 
   return (
     <Pressable

@@ -195,6 +195,12 @@ export const api = {
   presign: (data: { filename: string; mime: string; size: number }) =>
     req<PresignResponse>("/api/attachments/presign", { method: "POST", body: JSON.stringify(data) }),
   signedUrl: (key: string) => req<{ url: string }>(`/api/attachments/${encodeURIComponent(key)}/signed`),
+  /** Proxied raw fetch via API — avoids MinIO host/signature issues on Android (10.0.2.2). */
+  rawUrl: async (key: string): Promise<string> => {
+    const token = await loadToken();
+    const base = `${API_URL}/api/attachments/${encodeURIComponent(key)}/raw`;
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  },
 
   // notifications
   notifications: () => req<NotificationsResponse>("/api/notifications"),
