@@ -368,6 +368,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       s.emit("typing:stop", { channelId });
     } catch (e) {
       alert((e as Error).message);
+      throw e;
     }
   }
 
@@ -380,6 +381,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       await send(text, atts);
     } catch (e) {
       alert("Upload failed: " + (e as Error).message);
+      throw e;
     } finally {
       setUploading(false);
     }
@@ -453,6 +455,9 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     enabled: !!isAiChannel && !!llmConnectionIdForChannel,
     retry: false,
     staleTime: 10_000,
+    refetchInterval: isAiChannel && !!llmConnectionIdForChannel ? 15_000 : false,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
   });
   const llmStatusLoading = llmStatusInitialLoading || llmStatusFetching;
   const statusConn: any = (llmStatusDetail as any)?.connection ?? null;
@@ -471,13 +476,14 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   const isModelOnline = !!isAiChannel && !llmStatusLoading && !isModelOffline && providerReachable === true;
   const isModelChecking = !!isAiChannel && llmStatusLoading;
 
-  // poll while offline so queued messages flush automatically when provider returns
+  // keep status fresh while viewing an AI channel — ensures the first message after
+  // a drop is queued instead of being sent into a failed generation, and lets
+  // queued messages flush promptly when the provider returns
   useEffect(() => {
     if (!isAiChannel || !llmConnectionIdForChannel) return;
-    if (!isModelOffline) return;
     const id = setInterval(() => { refetchLlmStatus(); }, 15_000);
     return () => clearInterval(id);
-  }, [isAiChannel, llmConnectionIdForChannel, isModelOffline, refetchLlmStatus]);
+  }, [isAiChannel, llmConnectionIdForChannel, refetchLlmStatus]);
 
   // socket llm:error for this channel/connection → mark offline immediately
   useEffect(() => {
@@ -507,20 +513,52 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
 
   // queued-send: when model comes back online, flush pending messages sequentially
   const flushingRef = useRef(false);
+  const pendingQueueRef = useRef(pendingQueue);
+  useEffect(() => { pendingQueueRef.current = pendingQueue; }, [pendingQueue]);
+  const isModelOnlineRef = useRef(isModelOnline);
+  useEffect(() => { isModelOnlineRef.current = isModelOnline; }, [isModelOnline]);
+
   useEffect(() => {
     if (!isModelOnline || pendingQueue.length === 0 || flushingRef.current) return;
     flushingRef.current = true;
+    // snapshot at flush start — remaining items on failure are re-queued so none are lost
     const toSend = [...pendingQueue];
     setPendingQueue([]);
     (async () => {
-      for (const item of toSend) {
+      for (let i = 0; i < toSend.length; i++) {
+        const item = toSend[i];
+        // re-check liveness before each send — provider may have dropped mid-flush
+        if (!isModelOnlineRef.current) {
+          // model went offline, re-queue this and all remaining
+          setPendingQueue((prev) => [...toSend.slice(i), ...prev]);
+          toast.error("Model went offline — remaining messages re-queued.");
+          break;
+        }
         try {
           const atts: { key: string; filename: string; mime: string; size: number }[] = [];
           for (const f of item.files) atts.push(await uploadAttachmentPart(f));
           await send(item.text, atts);
+          // wait for the just-sent message's generation to finish before sending
+          // the next queued item — server allows only one generation per connection
+          // at a time (generating set), so back-to-back sends would drop replies
+          if (i < toSend.length - 1) {
+            let waited = 0;
+            // give the server a moment to start the stream
+            await new Promise((r) => setTimeout(r, 600));
+            while (waited < 120_000) {
+              const st = useChatStore.getState().llmStreams[channelId];
+              const isGenerating = !!st && st.connectionId === llmConnectionIdForChannel;
+              const typing = (useChatStore.getState().llmTyping as any)?.[channelId];
+              if (!isGenerating && !typing) break;
+              await new Promise((r) => setTimeout(r, 400));
+              waited += 400;
+            }
+            // small gap between generations
+            await new Promise((r) => setTimeout(r, 300));
+          }
         } catch (e: any) {
-          // re-queue failed item and stop flushing so user can retry after fixing provider
-          setPendingQueue((prev) => [{ ...item }, ...prev]);
+          // re-queue failed item AND all remaining items after it
+          setPendingQueue((prev) => [...toSend.slice(i), ...prev]);
           toast.error(`Queued send failed: ${String(e.message ?? e).slice(0, 160)}`);
           break;
         }
@@ -528,6 +566,13 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       flushingRef.current = false;
       // one more status check after flushing in case provider died mid-flush
       refetchLlmStatus();
+      // if new messages were queued while we were flushing, they landed in
+      // pendingQueueRef but the effect was blocked by flushingRef — trigger
+      // another flush on next tick
+      if (pendingQueueRef.current.length > 0) {
+        // force effect to re-evaluate (length already changed while blocked)
+        setPendingQueue((q) => [...q]);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isModelOnline, pendingQueue.length]);
@@ -548,6 +593,54 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       toast.message("Checking model… message queued", { description: "Will send as soon as reachability is confirmed." });
       return;
     }
+    // verify live reachability before sending — closes the gap where the model
+    // went down after the last poll but before the user hit send. Without this
+    // the *first* message after a drop would be sent into a failed generation
+    // instead of being queued.
+    if (isAiChannel) {
+      try {
+        const fresh: any = await api.llmConnectionStatus(llmConnectionIdForChannel!);
+        qc.setQueryData(["llm-status", llmConnectionIdForChannel], fresh);
+        const reachable = fresh?.providerReachable;
+        const models = fresh?.providerModels as string[] | null;
+        const status = fresh?.connection?.status;
+        const modelMissing = models !== null && modelId != null && !models.includes(modelId);
+        const freshOffline = reachable === false || status === "error" || modelMissing;
+        if (freshOffline) {
+          const id = ulid();
+          setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
+          toast.message("Model offline — message queued", { description: `Will send automatically when ${modelId ?? "the model"} is reachable.` });
+          return;
+        }
+      } catch {
+        const id = ulid();
+        setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
+        toast.message("Model offline — message queued", { description: `Will send automatically when ${modelId ?? "the model"} is reachable.` });
+        return;
+      }
+    }
+    // direct send with queue fallback — bypasses handlePromptSubmit's swallowed alerts
+    // so a failed AI-channel send is queued instead of being dropped
+    if (isAiChannel) {
+      setUploading(true);
+      try {
+        const atts: { key: string; filename: string; mime: string; size: number }[] = [];
+        for (const f of files) atts.push(await uploadAttachmentPart(f));
+        await send(text, atts);
+        // send() swallows its own errors and alerts, so check if message actually
+        // appeared is not reliable — instead we rely on the fresh check above
+        // and on send throwing via the fix below. If send was swallowed, this
+        // will still appear as success, which is okay because fresh check already
+        // verified reachability.
+      } catch (e: any) {
+        const id = ulid();
+        setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
+        toast.message("Send failed — message queued", { description: String(e?.message ?? e).slice(0, 160) });
+      } finally {
+        setUploading(false);
+      }
+      return;
+    }
     return handlePromptSubmit({ text, files });
   }
 
@@ -558,10 +651,14 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       refetchLlmStatus();
       return;
     }
-    // trigger flush via state change — reuse effect by toggling a dummy
+    if (flushingRef.current) return;
+    // React 18 batches synchronous setState, so the previous
+    // setPendingQueue([]) + setPendingQueue(copy) collapsed to just `copy`
+    // and the effect (deps: isModelOnline, pendingQueue.length) never fired.
+    // Break batching with a microtask so length 0 -> N triggers the flush.
     const copy = [...pendingQueue];
     setPendingQueue([]);
-    setPendingQueue(copy);
+    setTimeout(() => setPendingQueue(copy), 0);
   }
 
   if (isLoading) return <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading messages…</div>;
