@@ -1,19 +1,27 @@
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
-import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
 
-import { api } from "@/api/client";
+import { API_URL } from "@/api/client";
+import { loadToken } from "@/lib/session";
+import { useSession } from "@/lib/session";
 import { useTheme } from "@/theme/useTheme";
 import type { Attachment } from "@/types";
 
 const IMAGE_RE = /^image\//;
 
-/** Proxied GET via API — stable, no MinIO host/signature rewrite needed. */
+/** Proxied GET via API — includes bearer token in query so both <Image> and Linking work without custom headers. */
 export function useSignedUrl(key: string | null) {
+  const { token } = useSession();
   return useQuery({
-    queryKey: ["attachment-raw", key],
-    queryFn: () => api.rawUrl(key!),
-    enabled: !!key,
+    queryKey: ["attachment-raw", key, token ?? "no-token"],
+    queryFn: async () => {
+      const t = token ?? (await loadToken());
+      const base = `${API_URL}/api/attachments/${encodeURIComponent(key!)}/raw`;
+      return t ? `${base}?token=${encodeURIComponent(t)}` : base;
+    },
+    enabled: !!key && !!token,
     staleTime: 55 * 60 * 1000,
   });
 }
@@ -24,24 +32,33 @@ export function useRawUrl(key: string | null) {
 }
 
 export function Attachments({ attachments }: { attachments: Attachment[] }) {
+  const [lightbox, setLightbox] = useState<{ uri: string; name: string; mime: string } | null>(null);
   if (!attachments.length) return null;
   return (
-    <View style={styles.wrap}>
-      {attachments.map((a) =>
-        IMAGE_RE.test(a.mime) || /\.(png|jpe?g|gif|webp)$/i.test(a.filename) ? (
-          <AttachmentImage key={a.id} attachment={a} />
-        ) : (
-          <AttachmentFile key={a.id} attachment={a} />
-        ),
-      )}
-    </View>
+    <>
+      <View style={styles.wrap}>
+        {attachments.map((a) =>
+          IMAGE_RE.test(a.mime) || /\.(png|jpe?g|gif|webp)$/i.test(a.filename) ? (
+            <AttachmentImage key={a.id} attachment={a} onOpen={(uri) => setLightbox({ uri, name: a.filename, mime: a.mime })} />
+          ) : (
+            <AttachmentFile key={a.id} attachment={a} onOpen={(uri) => setLightbox({ uri, name: a.filename, mime: a.mime })} />
+          ),
+        )}
+      </View>
+      <AttachmentLightbox
+        visible={!!lightbox}
+        uri={lightbox?.uri ?? null}
+        name={lightbox?.name ?? ""}
+        mime={lightbox?.mime ?? ""}
+        onClose={() => setLightbox(null)}
+      />
+    </>
   );
 }
 
-function AttachmentImage({ attachment }: { attachment: Attachment }) {
+function AttachmentImage({ attachment, onOpen }: { attachment: Attachment; onOpen: (uri: string) => void }) {
   const t = useTheme();
   const signed = useSignedUrl(attachment.key);
-  // useSignedUrl now returns a plain string URL (proxied via API), not { url }
   const url = typeof signed.data === "string" ? (signed.data as string) : (signed.data as any)?.url ?? null;
 
   if (signed.isError) {
@@ -56,7 +73,7 @@ function AttachmentImage({ attachment }: { attachment: Attachment }) {
   return (
     <Pressable
       onPress={() => {
-        if (url) void Linking.openURL(url);
+        if (url) onOpen(url);
       }}
       disabled={!url}
       style={[styles.imageWrap, { backgroundColor: t.muted }]}
@@ -85,7 +102,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function AttachmentFile({ attachment }: { attachment: Attachment }) {
+function AttachmentFile({ attachment, onOpen }: { attachment: Attachment; onOpen: (uri: string) => void }) {
   const t = useTheme();
   const signed = useSignedUrl(attachment.key);
   const url = typeof signed.data === "string" ? (signed.data as string) : (signed.data as any)?.url ?? null;
@@ -93,8 +110,9 @@ function AttachmentFile({ attachment }: { attachment: Attachment }) {
   return (
     <Pressable
       onPress={() => {
-        if (url) void Linking.openURL(url);
+        if (url) onOpen(url);
       }}
+      disabled={!url}
       style={[styles.fileChip, { backgroundColor: t.accent50, borderColor: t.border }]}
     >
       <Ionicons name="document-text-outline" size={20} color={t.primary} />
@@ -103,13 +121,65 @@ function AttachmentFile({ attachment }: { attachment: Attachment }) {
           {attachment.filename}
         </Text>
         {!!attachment.size && (
-          <Text style={[styles.fileSize, { color: t.mutedForeground }]}>
-            {formatSize(attachment.size)}
-          </Text>
+          <Text style={[styles.fileSize, { color: t.mutedForeground }]}>{formatSize(attachment.size)}</Text>
         )}
       </View>
-      <Ionicons name="download-outline" size={16} color={t.mutedForeground} />
+      <Ionicons name={signed.isFetching ? "hourglass-outline" : "expand-outline"} size={16} color={t.mutedForeground} />
     </Pressable>
+  );
+}
+
+function AttachmentLightbox({
+  visible,
+  uri,
+  name,
+  mime,
+  onClose,
+}: {
+  visible: boolean;
+  uri: string | null;
+  name: string;
+  mime: string;
+  onClose: () => void;
+}) {
+  const t = useTheme();
+  const isImage = /^image\//.test(mime) || /\.(png|jpe?g|gif|webp)$/i.test(name);
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <View style={styles.lightboxBackdrop}>
+        <View style={styles.lightboxHeader}>
+          <Text style={[styles.lightboxTitle, { color: "#fff" }]} numberOfLines={1}>
+            {name}
+          </Text>
+          <Pressable onPress={onClose} style={styles.lightboxClose} hitSlop={10}>
+            <Ionicons name="close" size={20} color="#fff" />
+          </Pressable>
+        </View>
+        <Pressable style={styles.lightboxContent} onPress={onClose}>
+          {isImage && uri ? (
+            <ScrollView
+              contentContainerStyle={styles.lightboxScroll}
+              maximumZoomScale={3}
+              minimumZoomScale={1}
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              centerContent
+            >
+              <Image source={{ uri }} style={styles.lightboxImage} resizeMode="contain" />
+            </ScrollView>
+          ) : (
+            <View style={[styles.lightboxFile, { backgroundColor: t.card }]}>
+              <Ionicons name="document-text-outline" size={48} color={t.primary} />
+              <Text style={[styles.fileName, { color: t.foreground, marginTop: 12, textAlign: "center" }]}>{name}</Text>
+              <Text style={{ color: t.mutedForeground, fontSize: 12, marginTop: 4 }}>{mime}</Text>
+              <Text style={{ color: t.mutedForeground, fontSize: 11, marginTop: 8, textAlign: "center" }}>
+                Preview is shown in-app. Use the system share sheet or download if needed.
+              </Text>
+            </View>
+          )}
+        </Pressable>
+      </View>
+    </Modal>
   );
 }
 
@@ -134,4 +204,19 @@ const styles = StyleSheet.create({
   },
   fileName: { fontSize: 14, fontWeight: "500" },
   fileSize: { fontSize: 11, marginTop: 1 },
+  lightboxBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.88)" },
+  lightboxHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 48,
+    paddingBottom: 12,
+  },
+  lightboxTitle: { flex: 1, fontSize: 14, fontWeight: "600", marginRight: 12 },
+  lightboxClose: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
+  lightboxContent: { flex: 1, justifyContent: "center", alignItems: "center" },
+  lightboxScroll: { flexGrow: 1, justifyContent: "center", alignItems: "center", minHeight: "100%" },
+  lightboxImage: { width: 360, height: 480, maxWidth: "96%", maxHeight: "80%" },
+  lightboxFile: { margin: 16, borderRadius: 16, padding: 24, alignItems: "center", minWidth: 260 },
 });
