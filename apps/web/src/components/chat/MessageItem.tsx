@@ -3,7 +3,7 @@ import { useMemo, useState, memo } from "react";
 import { api } from "@/lib/api";
 import { RichText, AttachmentPreview } from "./RichText";
 import { BrainCircuit, CornerUpLeft, Pencil, ThumbsUp, Heart, Laugh, Trash2 } from "lucide-react";
-import { AiReadReceipt, ChannelReadReceipt, DmReadReceipt } from "./ReadReceipt";
+import { AiReadReceipt, DmReadReceipt } from "./ReadReceipt";
 import {
   Message,
   MessageAction,
@@ -182,10 +182,7 @@ function MessageItemInner({
             </div>
           )}
 
-          {/* channel read receipt — abbreviations as pills, not circles */}
-          {isOwn && !isDm && !isAiChannel && readBy.length > 0 && (
-            <ChannelReadReceipt readBy={readBy} />
-          )}
+
         </MessageContent>
       </Message>
 
