@@ -7,7 +7,13 @@ export function useMe(enabled: boolean) {
 }
 
 export function useWorkspaces() {
-  return useQuery({ queryKey: ["workspaces"], queryFn: () => api.workspaces() });
+  return useQuery({
+    queryKey: ["workspaces"],
+    queryFn: () => api.workspaces(),
+    // poll so a newly-shared workspace appears without requiring sign-out/in, even if the push is missed
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+  });
 }
 
 export function useChannels(workspaceId: string | null | undefined) {

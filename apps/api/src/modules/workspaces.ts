@@ -109,6 +109,37 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
     for (const c of publicChannels) {
       await db.insert(channelMember).values({ channelId: c.id, userId: target.id }).onConflictDoNothing();
     }
+    // notify the added user so their Activity feed updates and they see the new workspace without re-login
+    try {
+      const { notification } = await import("@chat/db/schema");
+      const [ws] = await db.select().from(workspace).where(eq(workspace.id, id));
+      const nid = ulid();
+      const title = `${actor.name} added you to ${ws?.name ?? "a workspace"}`;
+      const body = `You now have access to ${ws?.name ?? id}. Open Pulse to start chatting.`;
+      const firstChannelId = publicChannels[0]?.id ?? null;
+      await db.insert(notification).values({
+        id: nid,
+        userId: target.id,
+        workspaceId: id,
+        channelId: firstChannelId,
+        type: "channel",
+        title,
+        body,
+      });
+      const redis = (app as any).redis;
+      if (redis) {
+        await redis.publish(
+          "chat:events",
+          JSON.stringify({
+            type: "notification:new",
+            userId: target.id,
+            notification: { id: nid, type: "channel", title, body, channelId: firstChannelId, workspaceId: id, messageId: null, createdAt: new Date().toISOString(), read: false },
+          }),
+        );
+      }
+    } catch (e) {
+      console.warn("[workspaces] addMember notification failed", e);
+    }
     return { id: target.id, name: target.name, email: target.email, role: parsed.data.role };
   });
 
@@ -136,6 +167,41 @@ export async function registerWorkspaceRoutes(app: FastifyInstance) {
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       })
       .returning();
+    // if the invited email belongs to an existing user, create an Activity notification so they see it in-app without waiting for email
+    try {
+      const [existing] = await db.select().from(userTable).where(eq(userTable.email, parsed.data.email));
+      if (existing) {
+        const { notification } = await import("@chat/db/schema");
+        const [ws] = await db.select().from(workspace).where(eq(workspace.id, id));
+        const chans = await db.select().from(channel).where(and(eq(channel.workspaceId, id), eq(channel.type, "public")));
+        const firstChannelId = chans[0]?.id ?? null;
+        const nid = ulid();
+        const title = `${user.name} invited you to ${ws?.name ?? "a workspace"}`;
+        const body = `Accept the invite to join ${ws?.name ?? id}. Invite: /invite/${token}`;
+        await db.insert(notification).values({
+          id: nid,
+          userId: existing.id,
+          workspaceId: id,
+          channelId: firstChannelId,
+          type: "channel",
+          title,
+          body,
+        });
+        const redis = (app as any).redis;
+        if (redis) {
+          await redis.publish(
+            "chat:events",
+            JSON.stringify({
+              type: "notification:new",
+              userId: existing.id,
+              notification: { id: nid, type: "channel", title, body, channelId: firstChannelId, workspaceId: id, messageId: null, createdAt: new Date().toISOString(), read: false },
+            }),
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("[workspaces] invite notification failed", e);
+    }
     // In production send email; for dev return token
     return { ...inv, inviteUrl: `/invite/${token}` };
   });

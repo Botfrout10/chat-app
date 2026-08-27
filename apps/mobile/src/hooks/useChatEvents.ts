@@ -96,9 +96,15 @@ export function useChatEvents(enabled: boolean) {
         setPresence(evt.userId, evt.status);
         break;
       }
-      case "notification:new":
+      case "notification:new": {
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        // a workspace invite/add also arrives as a notification — refresh workspace/channel lists
+        queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+        queryClient.invalidateQueries({ queryKey: ["channels"] });
+        const n = payload as { workspaceId?: string } | null;
+        if (n?.workspaceId) queryClient.invalidateQueries({ queryKey: ["channels", n.workspaceId] });
         break;
+      }
       case "llm:typing": {
         const evt = payload as { channelId: string; connectionId: string; isTyping: boolean };
         if (evt.isTyping) setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: "", thinking: "" });
