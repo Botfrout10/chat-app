@@ -143,8 +143,8 @@ function MessageItemInner({
             <div
               className={`border-l-2 pl-2 py-0.5 mb-1 text-[11px] ${
                 isOwn
-                  ? "border-[var(--accent-300)] text-[var(--primary-foreground)]/70"
-                  : "border-[var(--accent)] text-[var(--muted-foreground)]"
+                  ? "border-[var(--accent-300)] text-[var(--primary-foreground)]"
+                  : "border-[var(--accent-600)] dark:border-[var(--accent-500)] text-[var(--accent-700)] dark:text-[var(--accent-300)]"
               }`}
             >
               replied in thread
