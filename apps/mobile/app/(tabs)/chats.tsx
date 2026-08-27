@@ -283,8 +283,6 @@ export default function Chats() {
             </Section>
           )
         }
-          refreshing={channelsQuery.isRefetching}
-          onRefresh={refresh}
           contentContainerStyle={{ paddingBottom: 24 }}
         />
 
