@@ -69,6 +69,7 @@ export const api = {
   deleteLlmConnection: (id: string) => req(`/api/llm/connections/${id}`, { method: "DELETE" }),
   verifyLlmConnection: (id: string) => req(`/api/llm/connections/${id}/verify`, { method: "POST", body: JSON.stringify({}) }),
   llmConnectionStatus: (id: string) => req(`/api/llm/connections/${id}/status`),
+  llmPreview: (baseUrl: string) => req(`/api/llm/preview`, { method: "POST", body: JSON.stringify({ baseUrl }) }),
   createLlmDm: (connectionId: string, workspaceId: string) =>
     req(`/api/llm/connections/${connectionId}/dm`, { method: "POST", body: JSON.stringify({ workspaceId }) }),
 };

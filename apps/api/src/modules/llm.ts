@@ -195,6 +195,30 @@ export async function registerLlmRoutes(app: FastifyInstance) {
     return { ...ch, llmConnectionId: conn.id, modelLabel: conn.label };
   });
 
+  // preview models for a baseUrl before creating a connection (URL-first picker)
+  app.post("/api/llm/preview", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    if (!(await enforceRate(app.redis, req, reply, { name: "llm-verify", max: 10, windowMs: 60_000, subject: user.id }))) return;
+    const parsed = z.object({ baseUrl: z.string().min(1).max(500) }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    const baseUrl = normalizeBaseUrl(parsed.data.baseUrl);
+    try {
+      const res = await fetch(`${baseUrl}/models`, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        return reply.code(400).send({ error: `Provider responded ${res.status} ${res.statusText}`, providerReachable: false, providerModels: null, baseUrl });
+      }
+      const data = (await res.json()) as any;
+      const models: string[] = (Array.isArray(data?.data) ? data.data : []).map((m: any) => m?.id).filter(Boolean);
+      return { providerReachable: true, providerModels: models, baseUrl };
+    } catch (e) {
+      return reply.code(400).send({ error: `Provider unreachable: ${(e as Error).message}`, providerReachable: false, providerModels: null, baseUrl });
+    }
+  });
+
   // status page detail: connection + live snapshot of what the provider offers
   app.get("/api/llm/connections/:id/status", async (req, reply) => {
     const user = await (app as any).getSessionUser(req);

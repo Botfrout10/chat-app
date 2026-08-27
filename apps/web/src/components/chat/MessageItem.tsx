@@ -3,6 +3,7 @@ import { useMemo, useState, memo } from "react";
 import { api } from "@/lib/api";
 import { RichText, AttachmentPreview } from "./RichText";
 import { BrainCircuit, CornerUpLeft, Pencil, ThumbsUp, Heart, Laugh, Trash2 } from "lucide-react";
+import { AiReadReceipt, ChannelReadReceipt, DmReadReceipt } from "./ReadReceipt";
 import {
   Message,
   MessageAction,
@@ -29,7 +30,31 @@ type Msg = {
 
 const EMPTY_READBY: { id: string; name: string; image?: string | null }[] = [];
 
-function MessageItemInner({ msg, onReply, isOwn, meId, isAiChannel, memberTokens, meName, readBy = EMPTY_READBY }: { msg: Msg; onReply?: (id: string) => void; isOwn?: boolean; meId?: string | null; isAiChannel?: boolean; memberTokens?: Set<string>; meName?: string; readBy?: { id: string; name: string; image?: string | null }[] }) {
+function MessageItemInner({
+  msg,
+  onReply,
+  isOwn,
+  meId,
+  isAiChannel,
+  isDm,
+  dmReadStatus,
+  aiReadStatus,
+  memberTokens,
+  meName,
+  readBy = EMPTY_READBY,
+}: {
+  msg: Msg;
+  onReply?: (id: string) => void;
+  isOwn?: boolean;
+  meId?: string | null;
+  isAiChannel?: boolean;
+  isDm?: boolean;
+  dmReadStatus?: "sent" | "read" | null;
+  aiReadStatus?: "sent" | "read" | null;
+  memberTokens?: Set<string>;
+  meName?: string;
+  readBy?: { id: string; name: string; image?: string | null }[];
+}) {
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
   const [showActions, setShowActions] = useState(false);
@@ -94,6 +119,8 @@ function MessageItemInner({ msg, onReply, isOwn, meId, isAiChannel, memberTokens
           <span className="text-[13px] font-semibold text-[var(--foreground)]">{msg.sender?.name ?? "Unknown"}</span>
           <span className="text-[11px] text-[var(--muted-foreground)]">{time}</span>
           {msg.editedAt && <span className="text-[11px] text-[var(--muted-foreground)]">(edited)</span>}
+          {isOwn && isDm && !isAiChannel && dmReadStatus && <DmReadReceipt status={dmReadStatus} />}
+          {isOwn && isAiChannel && aiReadStatus && <AiReadReceipt status={aiReadStatus} />}
         </div>
 
         {/* reasoning collapsible stays outside the bubble, full width of its side */}
@@ -155,7 +182,10 @@ function MessageItemInner({ msg, onReply, isOwn, meId, isAiChannel, memberTokens
             </div>
           )}
 
-
+          {/* channel read receipt — abbreviations as pills, not circles */}
+          {isOwn && !isDm && !isAiChannel && readBy.length > 0 && (
+            <ChannelReadReceipt readBy={readBy} />
+          )}
         </MessageContent>
       </Message>
 

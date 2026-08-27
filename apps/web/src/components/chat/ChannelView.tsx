@@ -424,6 +424,11 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
 
   const isDm = channel?.type === "dm";
   const title = isDm ? `${channel?.dmPeer?.name ?? "direct message"}` : `${channel?.name ?? channelId.slice(0, 8)}`;
+  const aiBotId = useMemo(() => {
+    if (!isAiChannel) return null;
+    const conn = (llmConnections as any[])?.find((c: any) => c.id === llmConnectionIdForChannel);
+    return (conn?.botUserId as string | undefined) ?? (channel as any)?.dmPeer?.id ?? null;
+  }, [isAiChannel, llmConnections, llmConnectionIdForChannel, channel]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--background)]">
@@ -480,9 +485,38 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
               description="Be the first to break the ice"
             />
           ) : (
-            allMessages.map((m: any) => (
-              <MessageItem key={m.id} msg={m} onReply={setReplyTo} isOwn={meId === m.senderId} meId={meId} isAiChannel={isAiChannel} memberTokens={memberTokens} meName={meName} readBy={readByMap.get(m.id) ?? EMPTY_READBY} />
-            ))
+            allMessages.map((m: any) => {
+              const isOwn = meId === m.senderId;
+              let dmReadStatus: "sent" | "read" | null = null;
+              let aiReadStatus: "sent" | "read" | null = null;
+              if (isOwn && isDm && !isAiChannel) {
+                const rb = readByMap.get(m.id);
+                dmReadStatus = rb && rb.length > 0 ? "read" : "sent";
+              }
+              if (isOwn && isAiChannel) {
+                const hasBotReply = aiBotId ? allMessages.some((x: any) => x.id > m.id && x.senderId === aiBotId) : false;
+                const isStreamingForChannel = !!stream && stream.connectionId === llmConnectionIdForChannel;
+                // if streaming is active and this is the last own message, treat as read/processing
+                const isLastOwn = allMessages.filter((x: any) => x.senderId === meId).at(-1)?.id === m.id;
+                aiReadStatus = hasBotReply || (isStreamingForChannel && isLastOwn) ? "read" : "sent";
+              }
+              return (
+                <MessageItem
+                  key={m.id}
+                  msg={m}
+                  onReply={setReplyTo}
+                  isOwn={isOwn}
+                  meId={meId}
+                  isAiChannel={isAiChannel}
+                  isDm={isDm}
+                  dmReadStatus={dmReadStatus}
+                  aiReadStatus={aiReadStatus}
+                  memberTokens={memberTokens}
+                  meName={meName}
+                  readBy={readByMap.get(m.id) ?? EMPTY_READBY}
+                />
+              );
+            })
           )}
 
           {/* live LLM stream placeholder */}
