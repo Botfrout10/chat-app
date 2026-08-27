@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs, usePathname, useRouter } from "expo-router";
+import { Tabs, useRouter, useSegments } from "expo-router";
 import { useMemo } from "react";
-import { PanResponder, View } from "react-native";
+import { LayoutAnimation, PanResponder, Platform, UIManager, View } from "react-native";
 
 import { useNotifications } from "@/hooks/queries";
 import { useRequireSession } from "@/hooks/useRequireSession";
@@ -14,25 +14,36 @@ export default function TabsLayout() {
   const notifQuery = useNotifications(20_000, !!token);
   const unread = notifQuery.data?.unread ?? 0;
   const router = useRouter();
-  const pathname = usePathname();
+  const segments = useSegments() as string[];
+  const currentTab = segments[1] ?? "chats";
 
-  const order = ["/(tabs)/chats", "/(tabs)/search", "/(tabs)/activity", "/(tabs)/settings"] as const;
+  const order = ["chats", "search", "activity", "settings"] as const;
   const idx = useMemo(() => {
-    const i = order.findIndex((p) => pathname === p || pathname.startsWith(p + "/"));
+    const i = order.indexOf(currentTab as any);
     return i === -1 ? 0 : i;
-  }, [pathname]);
+  }, [currentTab]);
+
+  if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+    try {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    } catch {}
+  }
 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 28 && Math.abs(g.dx) > Math.abs(g.dy) * 1.4,
+        onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dx) > 28 && Math.abs(g.dx) > Math.abs(g.dy) * 1.4,
         onPanResponderRelease: (_, g) => {
-          if (Math.abs(g.dx) < 70 || Math.abs(g.vx) < 0.2) return;
-          if (g.dx < 0 && idx < order.length - 1) {
-            router.push(order[idx + 1] as any);
-          } else if (g.dx > 0 && idx > 0) {
-            router.push(order[idx - 1] as any);
-          }
+          if (Math.abs(g.dx) < 50) return;
+          const isLeft = g.dx < 0;
+          const isRight = g.dx > 0;
+          const velocityOk = Math.abs(g.vx) > 0.15 || Math.abs(g.dx) > 80;
+          if (!velocityOk) return;
+          const nextIdx = isLeft ? idx + 1 : isRight ? idx - 1 : idx;
+          if (nextIdx < 0 || nextIdx >= order.length || nextIdx === idx) return;
+          if (Platform.OS !== "web") LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          router.push(`/(tabs)/${order[nextIdx]}` as any);
         },
       }),
     [idx, router],
