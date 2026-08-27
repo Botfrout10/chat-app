@@ -130,13 +130,13 @@ export function AppSidebar() {
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: () => api.me().catch(() => null) });
 
-  // members for DM list
-  const { data: wsMembers } = useQuery({
-    queryKey: ["members", activeWorkspaceId],
-    queryFn: () => api.members(activeWorkspaceId!).catch(() => []),
-    enabled: !!activeWorkspaceId,
+  // Global DMs — friends, not workspace-bound (like AI Models)
+  const { data: globalDms } = useQuery({
+    queryKey: ["dms"],
+    queryFn: () => (api as any).dms().catch(() => []),
+    enabled: !!(me as any)?.id,
   });
-  const dmCandidates = ((wsMembers as any[]) ?? []).filter((m) => m.id !== (me as any)?.id);
+  const dmList = ((globalDms as any[]) ?? []) as any[];
 
   // AI model connections
   const { data: llmConnections } = useQuery({
@@ -269,21 +269,31 @@ export function AppSidebar() {
           )}
         </CollapsibleSection>
 
-        <CollapsibleSection sectionKey="dms" label="DIRECT MESSAGES" onAdd={() => openDialog("newDm")} addTitle="New direct message">
-          {dmCandidates.length === 0 && (
-            <div className="px-2 text-xs text-sidebar-foreground/40">No other members yet.</div>
+        <CollapsibleSection sectionKey="dms" label="DIRECT MESSAGES" onAdd={() => openDialog("newDm")} addTitle="Add friend">
+          {dmList.length === 0 && (
+            <div className="px-2 text-xs text-sidebar-foreground/40">No friends yet. Add a friend to start.</div>
           )}
-          {dmCandidates.map((m: any) => (
-            <SidebarButton key={m.id} active={activeChannelId === dmChannelId(channels, m.id)} onClick={() => openDm(m.id)} title={m.name}>
-              <Avatar className="h-6 w-6">
-                <AvatarFallback className="text-[9px] bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] text-[var(--primary-foreground)]">
-                  {String(m.name).slice(0, 2).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <span className="truncate flex-1">{m.name}</span>
-              <span className={cn("h-2 w-2 rounded-full shrink-0", presence[m.id] === "online" ? "bg-emerald-500" : "bg-sidebar-foreground/15")} />
-            </SidebarButton>
-          ))}
+          {dmList.map((ch: any) => {
+            const peer = ch.dmPeer ?? ch.peer;
+            if (!peer) return null;
+            return (
+              <SidebarButton
+                key={ch.id}
+                active={activeChannelId === ch.id}
+                onClick={() => setActiveChannel(ch.id)}
+                unread={!ch.lastReadMessageId}
+                title={peer.name ?? peer.email}
+              >
+                <Avatar className="h-6 w-6">
+                  <AvatarFallback className="text-[9px] bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] text-[var(--primary-foreground)]">
+                    {String(peer.name ?? "?").slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="truncate flex-1">{peer.name ?? peer.email}</span>
+                <span className={cn("h-2 w-2 rounded-full shrink-0", presence[peer.id] === "online" ? "bg-emerald-500" : "bg-sidebar-foreground/15")} />
+              </SidebarButton>
+            );
+          })}
         </CollapsibleSection>
 
         <CollapsibleSection sectionKey="ai" label="AI MODELS" onAdd={() => openDialog("llmManager")} addTitle="Connect / manage models">

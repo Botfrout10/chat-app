@@ -18,23 +18,66 @@ export function useRefreshChannels() {
   }, [activeWorkspaceId, setChannels]);
 }
 
-/** Open (or create) a 1:1 DM with a user and select it. */
+/** Open (or create) a 1:1 DM with a user and select it — now global (not workspace-bound). */
 export function useOpenDm() {
   const activeWorkspaceId = useChatStore((s) => s.activeWorkspaceId);
   const refresh = useRefreshChannels();
   const setActiveChannel = useChatStore((s) => s.setActiveChannel);
+  const qc = useQueryClient();
   return useCallback(
     async (userId: string) => {
-      if (!activeWorkspaceId) return;
       try {
-        const ch: any = await api.createDm(activeWorkspaceId, userId);
+        // try global DM first (email is best for fallback, but here we have userId)
+        let ch: any;
+        try {
+          ch = await (api as any).createDmGlobal({ userId, workspaceId: activeWorkspaceId ?? undefined });
+        } catch {
+          // fallback to legacy workspace DM
+          if (!activeWorkspaceId) throw new Error("No workspace");
+          ch = await api.createDm(activeWorkspaceId, userId);
+        }
         await refresh();
+        qc.invalidateQueries({ queryKey: ["dms"] });
+        // also ensure global DM appears even if not in current workspace channels
+        if (ch?.id) {
+          const current = useChatStore.getState().channels;
+          if (!current.find((c: any) => c.id === ch.id)) {
+            useChatStore.getState().setChannels([...current, { ...ch, dmPeer: ch.dmPeer ?? { id: userId } } as any]);
+          }
+        }
         setActiveChannel(ch.id);
       } catch (e: any) {
         toast.error((e.message ?? "Failed to open DM").slice(0, 160));
       }
     },
-    [activeWorkspaceId, refresh, setActiveChannel],
+    [activeWorkspaceId, refresh, setActiveChannel, qc],
+  );
+}
+
+/** Open DM by email (global friend add) */
+export function useOpenDmByEmail() {
+  const activeWorkspaceId = useChatStore((s) => s.activeWorkspaceId);
+  const refresh = useRefreshChannels();
+  const setActiveChannel = useChatStore((s) => s.setActiveChannel);
+  const qc = useQueryClient();
+  return useCallback(
+    async (email: string) => {
+      try {
+        const ch: any = await (api as any).createDmGlobal({ email, workspaceId: activeWorkspaceId ?? undefined });
+        await refresh();
+        qc.invalidateQueries({ queryKey: ["dms"] });
+        if (ch?.id) {
+          const current = useChatStore.getState().channels;
+          if (!current.find((c: any) => c.id === ch.id)) {
+            useChatStore.getState().setChannels([...current, ch as any]);
+          }
+        }
+        setActiveChannel(ch.id);
+      } catch (e: any) {
+        toast.error((e.message ?? "Failed to open DM").slice(0, 160));
+      }
+    },
+    [activeWorkspaceId, refresh, setActiveChannel, qc],
   );
 }
 

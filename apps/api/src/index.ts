@@ -10,6 +10,7 @@ import { createRedis } from "./lib/redis.js";
 import { createS3 } from "./lib/s3.js";
 import { registerWorkspaceRoutes } from "./modules/workspaces.js";
 import { registerChannelRoutes } from "./modules/channels.js";
+import { registerDmRoutes } from "./modules/dms.js";
 import { registerMessageRoutes } from "./modules/messages.js";
 import { registerAttachmentRoutes } from "./modules/attachments.js";
 import { registerSearchRoutes } from "./modules/search.js";
@@ -105,6 +106,7 @@ app.addHook("onRequest", async (req, reply) => {
 await registerUserRoutes(app);
 await registerWorkspaceRoutes(app);
 await registerChannelRoutes(app);
+await registerDmRoutes(app);
 await registerMessageRoutes(app);
 await registerAttachmentRoutes(app);
 await registerSearchRoutes(app);

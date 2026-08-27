@@ -50,14 +50,38 @@ export function AppShell() {
     },
   });
 
-  // load channels when workspace changes
+  // load channels when workspace changes — also merge global DMs (friends) so they appear regardless of workspace
   useEffect(() => {
     if (!activeWorkspaceId) return;
-    api.channels(activeWorkspaceId).then((chs: any) => {
-      useChatStore.getState().setChannels(chs as any);
-      if (!useChatStore.getState().activeChannelId && (chs as any)?.[0]) useChatStore.getState().setActiveChannel((chs as any)[0].id);
+    Promise.all([api.channels(activeWorkspaceId).catch(() => []), (api as any).dms().catch(() => [])]).then(([chs, dms]: any) => {
+      const merged: any[] = [...(chs as any[])];
+      const existingIds = new Set(merged.map((c: any) => c.id));
+      for (const d of (dms as any[])) {
+        if (!existingIds.has(d.id)) merged.push(d);
+      }
+      useChatStore.getState().setChannels(merged as any);
+      if (!useChatStore.getState().activeChannelId && (merged as any)?.[0]) useChatStore.getState().setActiveChannel((merged as any)[0].id);
     }).catch(() => useChatStore.getState().setChannels([]));
   }, [activeWorkspaceId]);
+
+  // keep global DMs fresh even when workspace doesn't change (friends are global)
+  useEffect(() => {
+    if (!meId) return;
+    const refreshGlobal = () => {
+      (api as any)
+        .dms()
+        .then((dms: any) => {
+          const current = useChatStore.getState().channels;
+          const ids = new Set(current.map((c: any) => c.id));
+          const toAdd = (dms as any[]).filter((d: any) => !ids.has(d.id));
+          if (toAdd.length) useChatStore.getState().setChannels([...current, ...toAdd] as any);
+        })
+        .catch(() => {});
+    };
+    refreshGlobal();
+    const id = setInterval(refreshGlobal, 30_000);
+    return () => clearInterval(id);
+  }, [meId]);
 
   // realtime + presence (single source of truth: the Zustand store)
   useEffect(() => { if (meId) connectSocket(); }, [meId]);
@@ -138,18 +162,29 @@ export function AppShell() {
 
       {/* main */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden bg-[var(--background)]">
-        {activeChannelId ? (
-          <ChannelView
-            key={activeChannelId}
-            channelId={activeChannelId}
-            workspaceId={activeWorkspaceId ?? undefined}
-            channel={channels.find((c) => c.id === activeChannelId)}
-          />
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2 text-sm text-[var(--muted-foreground)]">
-            Select a channel on the left — or press <kbd className="rounded border border-[var(--border)] bg-[var(--muted)] px-1.5 py-0.5 text-xs">Ctrl</kbd>+<kbd className="rounded border border-[var(--border)] bg-[var(--muted)] px-1.5 py-0.5 text-xs">P</kbd> to search.
-          </div>
-        )}
+        {(() => {
+          const activeChannel = channels.find((c) => c.id === activeChannelId);
+          if (activeChannelId && activeChannel) {
+            return (
+              <ChannelView
+                key={activeChannelId}
+                channelId={activeChannelId}
+                workspaceId={(activeChannel as any)?.workspaceId ?? activeWorkspaceId ?? undefined}
+                channel={activeChannel}
+              />
+            );
+          }
+          if (activeChannelId && !activeChannel) {
+            // global DM not yet in store — still render with just id
+            return <ChannelView key={activeChannelId} channelId={activeChannelId} workspaceId={activeWorkspaceId ?? undefined} channel={undefined} />;
+          }
+          return (
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 text-sm text-[var(--muted-foreground)]">
+              Select a channel on the left — or press <kbd className="rounded border border-[var(--border)] bg-[var(--muted)] px-1.5 py-0.5 text-xs">Ctrl</kbd>+
+              <kbd className="rounded border border-[var(--border)] bg-[var(--muted)] px-1.5 py-0.5 text-xs">P</kbd> to search.
+            </div>
+          );
+        })()}
       </div>
 
       <DialogHost />

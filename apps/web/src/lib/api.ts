@@ -53,6 +53,10 @@ export const api = {
   channelMembers: (channelId: string) => req(`/api/channels/${channelId}/members`),
   markRead: (channelId: string, lastReadMessageId: string) =>
     req(`/api/channels/${channelId}/read`, { method: "PATCH", body: JSON.stringify({ lastReadMessageId }) }),
+  dms: () => req(`/api/dms`),
+  createDmGlobal: (data: { userId?: string; email?: string; workspaceId?: string }) =>
+    req(`/api/dms`, { method: "POST", body: JSON.stringify(data) }),
+  searchUsers: (q: string) => req(`/api/users/search?q=${encodeURIComponent(q)}`),
   inviteMeta: (token: string) => req(`/api/invites/${token}`),
   acceptInvite: (token: string) => req(`/api/invites/${token}/accept`, { method: "POST", body: JSON.stringify({}) }),
   notifications: () => req(`/api/notifications`),
