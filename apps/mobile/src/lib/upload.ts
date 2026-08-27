@@ -1,5 +1,8 @@
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
+// ensure expo-blob polyfills global Blob so fetch().blob() is efficient (removes RN warning)
+import "expo-blob";
 
 import { api, rewriteAssetUrl } from "@/api/client";
 
@@ -81,14 +84,51 @@ export async function uploadAttachment(file: PickedFile): Promise<UploadedMeta> 
     size: Math.max(file.size, 1),
   });
 
-  const blob = await (await fetch(file.uri)).blob();
   const putUrl = rewriteAssetUrl(presigned.url);
-  const res = await fetch(putUrl, {
-    method: "PUT",
-    headers: { "Content-Type": file.mime },
-    body: blob,
-  });
-  if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+
+  // Use FileSystem.uploadAsync for efficient, content://-aware uploads on Android
+  // (fetch(file.uri).blob() copies via base64 and triggers the RN warning).
+  // expo-blob is installed so fetch().blob() would also be efficient, but FileSystem handles
+  // both file:// and content:// URIs without extra copying.
+  try {
+    // FileSystem v57 still exposes uploadAsync via legacy API; prefer it if available
+    const legacy = (FileSystem as unknown as { uploadAsync?: Function }).uploadAsync;
+    if (typeof legacy === "function") {
+      const result = await (FileSystem as unknown as { uploadAsync: (url: string, uri: string, opts: unknown) => Promise<{ status: number; body: string }> }).uploadAsync(
+        putUrl,
+        file.uri,
+        {
+          httpMethod: "PUT",
+          uploadType: (FileSystem as unknown as { FileSystemUploadType: { BINARY_CONTENT: number } }).FileSystemUploadType.BINARY_CONTENT,
+          headers: { "Content-Type": file.mime },
+        },
+      );
+      if (result.status < 200 || result.status >= 300) throw new Error(`Upload failed (${result.status}) ${result.body?.slice(0, 120) ?? ""}`);
+    } else {
+      // Fallback for newer expo-file-system where File API is preferred
+      const blob = await (await fetch(file.uri)).blob();
+      const res = await fetch(putUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.mime },
+        body: blob,
+      });
+      if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+    }
+  } catch (e) {
+    // if FileSystem upload fails for any reason, fall back to fetch blob PUT so user still gets an error message
+    if (e instanceof Error && e.message.startsWith("Upload failed")) throw e;
+    try {
+      const blob = await (await fetch(file.uri)).blob();
+      const res = await fetch(putUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.mime },
+        body: blob,
+      });
+      if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+    } catch (inner) {
+      throw inner instanceof Error ? inner : new Error(String(e));
+    }
+  }
 
   return {
     key: presigned.key,
