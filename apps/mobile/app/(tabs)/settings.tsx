@@ -17,6 +17,7 @@ import { api } from "@/api/client";
 import { useMe } from "@/hooks/queries";
 import { useSession } from "@/lib/session";
 import { useTheme } from "@/theme/useTheme";
+import { useUiStore, type ThemeMode } from "@/stores/ui";
 import type { LlmConnection } from "@/types";
 
 export default function Settings() {
@@ -58,6 +59,8 @@ export default function Settings() {
           )}
         </View>
 
+        <ThemeRow />
+
         {!!token && <LlmManager />}
 
         <Pressable
@@ -72,6 +75,46 @@ export default function Settings() {
         </Pressable>
       </View>
     </SafeAreaView>
+  );
+}
+
+/** Light / Dark / System appearance switch (web has an equivalent in the account footer). */
+function ThemeRow() {
+  const t = useTheme();
+  const theme = useUiStore((s) => s.theme);
+  const setTheme = useUiStore((s) => s.setTheme);
+
+  const options: { mode: ThemeMode; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { mode: "system", label: "System", icon: "phone-portrait-outline" },
+    { mode: "light", label: "Light", icon: "sunny-outline" },
+    { mode: "dark", label: "Dark", icon: "moon-outline" },
+  ];
+
+  return (
+    <View style={[styles.cardCol, { backgroundColor: t.card, borderColor: t.border }]}>
+      <Text style={[styles.sectionTitle, { color: t.mutedForeground }]}>APPEARANCE</Text>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        {options.map((o) => {
+          const active = theme === o.mode;
+          return (
+            <Pressable
+              key={o.mode}
+              accessibilityRole="button"
+              onPress={() => setTheme(o.mode)}
+              style={({ pressed }) => [
+                styles.segBtn,
+                { backgroundColor: active ? t.primary : t.muted, opacity: pressed ? 0.8 : 1 },
+              ]}
+            >
+              <Ionicons name={o.icon} size={16} color={active ? t.primaryForeground : t.foreground} />
+              <Text style={{ color: active ? t.primaryForeground : t.foreground, fontWeight: "600", fontSize: 13 }}>
+                {o.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -274,6 +317,15 @@ const styles = StyleSheet.create({
   connRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
   rowTitle2: { fontSize: 14, fontWeight: "600" },
+  segBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
   signOut: {
     borderRadius: 14,
     paddingVertical: 14,
