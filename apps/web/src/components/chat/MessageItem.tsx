@@ -155,20 +155,7 @@ function MessageItemInner({ msg, onReply, isOwn, meId, isAiChannel, memberTokens
             </div>
           )}
 
-          {readBy && readBy.length > 0 && (
-            <div className={`mt-1 flex items-center gap-1 ${isOwn ? "justify-start" : "justify-end"}`} title={`Read by ${readBy.map((r) => r.name).join(", ")}`}>
-              {readBy.slice(0, 4).map((r) => (
-                <span
-                  key={r.id}
-                  className="h-5 w-5 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] text-[var(--primary-foreground)] text-[9px] font-bold flex items-center justify-center ring-2 ring-[var(--card)] -ml-1 first:ml-0"
-                  title={r.name}
-                >
-                  {String(r.name ?? "?").slice(0, 2).toUpperCase()}
-                </span>
-              ))}
-              {readBy.length > 4 && <span className="text-xs text-[var(--muted-foreground)] ml-1">+{readBy.length - 4}</span>}
-            </div>
-          )}
+
         </MessageContent>
       </Message>
 
