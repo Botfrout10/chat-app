@@ -3,7 +3,7 @@ import { useEffect } from "react";
 
 import { getSocket } from "@/lib/socket";
 import { useChatStore } from "@/stores/chat";
-import type { MessagesPage, Message } from "@/types";
+import type { MessagesPage, Message, Member } from "@/types";
 
 /**
  * Wires the socket singleton to the TanStack Query cache + zustand UI state.
@@ -103,6 +103,13 @@ export function useChatEvents(enabled: boolean) {
         queryClient.invalidateQueries({ queryKey: ["channels"] });
         const n = payload as { workspaceId?: string } | null;
         if (n?.workspaceId) queryClient.invalidateQueries({ queryKey: ["channels", n.workspaceId] });
+        break;
+      }
+      case "read:receipt": {
+        const evt = payload as { channelId: string; userId: string; lastReadMessageId: string };
+        queryClient.setQueryData<Member[]>(["channelMembers", evt.channelId], (prev) =>
+          prev?.map((m) => (m.id === evt.userId ? { ...m, lastReadMessageId: evt.lastReadMessageId } : m)),
+        );
         break;
       }
       case "llm:typing": {

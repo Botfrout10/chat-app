@@ -60,7 +60,7 @@ Full chat parity with web; bearer-token auth; push notifications deferred to pha
 - [x] Chrome emoji glyphs (`✦`/`🔒`/`🌐`/`🧠`) replaced with Ionicons to honor DESIGN.md "no emoji glyphs in UI chrome" rule (A1)
 - [x] Mention-chip highlighting in messages (web `RichText` has it; mobile `MessageMarkdown` plain) — A5
 - [x] Manual light/dark/system theme toggle (web has it; mobile follows system only) — A2
-- [ ] Read receipts (seen-by stack) — needs API `readBy` on messages — A4
+- [x] Read receipts (seen-by stack) — A4
 - [ ] **Web → mobile parity:** web still lacks a dedicated Thread view (mobile has `app/thread/[id].tsx`) — B1
 
 ## Remaining / next up

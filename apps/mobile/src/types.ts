@@ -98,6 +98,8 @@ export type NotificationsResponse = {
 export type Member = User & {
   role: "owner" | "admin" | "member";
   joinedAt: string;
+  /** channel read cursor — drives seen-by read receipts */
+  lastReadMessageId?: string | null;
 };
 
 export type SearchResult = Message & { channel: Channel };

@@ -32,6 +32,14 @@ export function useMembers(workspaceId: string | null | undefined) {
   });
 }
 
+export function useChannelMembers(channelId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["channelMembers", channelId],
+    queryFn: () => api.channelMembers(channelId!),
+    enabled: !!channelId,
+  });
+}
+
 export function useMessages(channelId: string | null | undefined) {
   return useInfiniteQuery({
     queryKey: ["messages", channelId],

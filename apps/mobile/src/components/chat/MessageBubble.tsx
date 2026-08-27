@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Attachments } from "@/components/chat/Attachments";
 import { MessageMarkdown } from "@/components/chat/MessageMarkdown";
+import { initials } from "@/lib/channelTitle";
 import { useTheme } from "@/theme/useTheme";
 import type { Message, User } from "@/types";
 
@@ -20,12 +21,14 @@ export function MessageBubble({
   firstOfGroup,
   onLongPress,
   memberTokens,
+  readBy,
 }: {
   message: Message;
   me: User | null;
   firstOfGroup: boolean;
   onLongPress?: (m: Message) => void;
   memberTokens?: Set<string>;
+  readBy?: { id: string; name: string }[];
 }) {
   const t = useTheme();
   const own = me?.id === message.senderId;
@@ -112,6 +115,19 @@ export function MessageBubble({
         <Text style={[styles.time, { color: own ? t.accent100 : t.mutedForeground }]}>
           {timeOf(message.createdAt)}
         </Text>
+
+        {own && readBy && readBy.length > 0 && (
+          <View style={styles.readBy}>
+            {readBy.slice(0, 4).map((r) => (
+              <View key={r.id} style={[styles.readByPill, { backgroundColor: t.muted }]}>
+                <Text style={{ fontSize: 10, fontWeight: "700", color: t.mutedForeground }}>{initials(r.name)}</Text>
+              </View>
+            ))}
+            {readBy.length > 4 && (
+              <Text style={[styles.readByMore, { color: t.mutedForeground }]}>+{readBy.length - 4}</Text>
+            )}
+          </View>
+        )}
       </View>
     </Pressable>
   );
@@ -174,6 +190,15 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   time: { fontSize: 10, alignSelf: "flex-end", marginTop: 2 },
+  readBy: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4, justifyContent: "flex-end" },
+  readByPill: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  readByMore: { fontSize: 11, fontWeight: "600", alignSelf: "center" },
   tombstone: {
     fontStyle: "italic",
     fontSize: 13,

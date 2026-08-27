@@ -20,7 +20,7 @@ import { ActionSheet, QuickReactions, type Action } from "@/components/chat/Acti
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { MessageComposer, type ComposerState } from "@/components/chat/MessageComposer";
 import { joinChannelRoom, leaveChannelRoom } from "@/hooks/useChatEvents";
-import { useMe, useMembers, useMessages } from "@/hooks/queries";
+import { useChannelMembers, useMe, useMembers, useMessages } from "@/hooks/queries";
 import { useRequireSession } from "@/hooks/useRequireSession";
 import { useSession } from "@/lib/session";
 import { useChatStore } from "@/stores/chat";
@@ -65,6 +65,19 @@ export default function ChannelView() {
     () => new Set((membersQuery.data ?? []).map((m) => m.name.toLowerCase())),
     [membersQuery.data],
   );
+
+  // seen-by read receipts: members whose read cursor sits on a given message
+  const channelMembersQuery = useChannelMembers(channelId);
+  const readByMap = useMemo(() => {
+    const m = new Map<string, { id: string; name: string }[]>();
+    for (const r of channelMembersQuery.data ?? []) {
+      if (!r.lastReadMessageId || r.id === me?.id) continue;
+      const arr = m.get(r.lastReadMessageId);
+      if (arr) arr.push({ id: r.id, name: r.name });
+      else m.set(r.lastReadMessageId, [{ id: r.id, name: r.name }]);
+    }
+    return m;
+  }, [channelMembersQuery.data, me?.id]);
 
   const [composerState, setComposerState] = useState<ComposerState>({ kind: "idle" });
   const [sheetFor, setSheetFor] = useState<Message | null>(null);
@@ -296,6 +309,7 @@ export default function ChannelView() {
                   me={me}
                   firstOfGroup={firstOfGroup}
                   memberTokens={memberTokens}
+                  readBy={readByMap.get(item.id)}
                   onLongPress={setSheetFor}
                 />
               );

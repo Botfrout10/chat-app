@@ -141,6 +141,7 @@ export const api = {
   createWorkspace: (name: string) =>
     req<Workspace>("/api/workspaces", { method: "POST", body: JSON.stringify({ name }) }),
   workspaceMembers: (wsId: string) => req<Member[]>(`/api/workspaces/${wsId}/members`),
+  channelMembers: (channelId: string) => req<Member[]>(`/api/channels/${channelId}/members`),
   addMember: (wsId: string, user: string) =>
     req(`/api/workspaces/${wsId}/members`, { method: "POST", body: JSON.stringify({ user }) }),
   invite: (wsId: string, email: string, role: string = "member") =>
