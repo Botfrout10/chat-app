@@ -89,13 +89,21 @@ export default function Chats() {
   }, [notificationsQuery.data]);
 
   const atTopRef = useRef(true);
-  const { panHandlers: dragHandlers, pullDistance } = usePullToPalette({
+  const { panHandlers: dragHandlers, pullDistance: handlePull } = usePullToPalette({
     enabled: !paletteOpen,
     atTopRef,
     onOpen: () => setPaletteOpen(true),
     threshold: 64,
     ignoreAtTop: true,
   });
+  const { panHandlers: listHandlers, pullDistance: listPull } = usePullToPalette({
+    enabled: !paletteOpen,
+    atTopRef,
+    onOpen: () => setPaletteOpen(true),
+    threshold: 96,
+    ignoreAtTop: false,
+  });
+  const pullDistance = Math.max(handlePull, listPull);
 
   const channels = channelsQuery.data ?? [];
   const channelList = channels.filter((c) => !isDmLike(c));
@@ -199,7 +207,8 @@ export default function Chats() {
         <ActivityIndicator style={{ marginTop: 24 }} color={t.primary} />
       )}
 
-      <FlatList
+      <View style={{ flex: 1 }} {...listHandlers}>
+        <FlatList
           onScroll={(e) => {
             atTopRef.current = e.nativeEvent.contentOffset.y <= 4;
           }}
@@ -285,6 +294,7 @@ export default function Chats() {
         }
           contentContainerStyle={{ paddingBottom: 24 }}
         />
+      </View>
 
       {/* workspace switcher */}
       <Modal
