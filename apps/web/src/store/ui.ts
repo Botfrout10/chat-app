@@ -29,9 +29,13 @@ type State = {
   sidebarHidden: boolean;
   /** per-section collapse inside the sidebar */
   sidebarSections: Record<SidebarSection, boolean>; // true = collapsed
+  /** open thread parent message id (null = thread panel closed) */
+  threadId: string | null;
   openDialog: (d: UiDialog) => void;
   closeDialog: () => void;
   setPaletteOpen: (open: boolean) => void;
+  openThread: (id: string) => void;
+  closeThread: () => void;
   /** toggle the sidebar between expanded and hidden (Ctrl/Cmd+B) */
   toggleSidebar: () => void;
   /** show the sidebar (leave hidden state) */
@@ -45,6 +49,7 @@ export const useUiStore = create<State>((set, get) => ({
   dialog: null,
   paletteOpen: false,
   sidebarHidden: loadBool("pulse.sidebar.hidden", false),
+  threadId: null,
   sidebarSections: {
     channels: loadBool("pulse.sidebar.sec.channels", false),
     dms: loadBool("pulse.sidebar.sec.dms", false),
@@ -53,6 +58,8 @@ export const useUiStore = create<State>((set, get) => ({
   openDialog: (dialog) => set({ dialog }),
   closeDialog: () => set({ dialog: null }),
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
+  openThread: (id) => set({ threadId: id }),
+  closeThread: () => set({ threadId: null }),
   toggleSidebar: () => {
     const hidden = !get().sidebarHidden;
     persist("pulse.sidebar.hidden", hidden);

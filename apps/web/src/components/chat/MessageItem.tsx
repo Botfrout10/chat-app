@@ -2,7 +2,7 @@
 import { useMemo, useState, memo } from "react";
 import { api } from "@/lib/api";
 import { RichText, AttachmentPreview } from "./RichText";
-import { BrainCircuit, CornerUpLeft, Pencil, ThumbsUp, Heart, Laugh, Trash2 } from "lucide-react";
+import { BrainCircuit, CornerUpLeft, MessagesSquare, Pencil, ThumbsUp, Heart, Laugh, Trash2 } from "lucide-react";
 import { AiReadReceipt, DmReadReceipt } from "./ReadReceipt";
 import {
   Message,
@@ -33,6 +33,7 @@ const EMPTY_READBY: { id: string; name: string; image?: string | null }[] = [];
 function MessageItemInner({
   msg,
   onReply,
+  onViewThread,
   isOwn,
   meId,
   isAiChannel,
@@ -45,6 +46,7 @@ function MessageItemInner({
 }: {
   msg: Msg;
   onReply?: (id: string) => void;
+  onViewThread?: (id: string) => void;
   isOwn?: boolean;
   meId?: string | null;
   isAiChannel?: boolean;
@@ -192,6 +194,7 @@ function MessageItemInner({
           <MessageAction tooltip="Heart" onClick={() => toggleReaction("❤️", groupedReactions.find(([e]) => e === "❤️")?.[1].byMe ?? false)}><Heart className="h-3.5 w-3.5" /></MessageAction>
           <MessageAction tooltip="Laugh" onClick={() => toggleReaction("😂", groupedReactions.find(([e]) => e === "😂")?.[1].byMe ?? false)}><Laugh className="h-3.5 w-3.5" /></MessageAction>
           {onReply && <MessageAction tooltip="Reply" onClick={() => onReply(msg.id)}><CornerUpLeft className="h-3.5 w-3.5" /></MessageAction>}
+          {onViewThread && !msg.parentId && <MessageAction tooltip="View thread" onClick={() => onViewThread(msg.id)}><MessagesSquare className="h-3.5 w-3.5" /></MessageAction>}
           {isOwn && (
             <>
               <MessageAction tooltip="Edit" onClick={() => setEditing(true)}><Pencil className="h-3.5 w-3.5" /></MessageAction>

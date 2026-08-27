@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { AppSidebar } from "./AppSidebar";
 import { ChannelView } from "./ChannelView";
 import { CommandPalette } from "./CommandPalette";
+import { ThreadPanel } from "./ThreadPanel";
 import { DialogHost } from "@/components/dialogs/DialogHost";
 
 export function AppShell() {
@@ -153,6 +154,7 @@ export function AppShell() {
 
       <DialogHost />
       <CommandPalette />
+      <ThreadPanel />
     </div>
   );
 }

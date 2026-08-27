@@ -61,7 +61,7 @@ Full chat parity with web; bearer-token auth; push notifications deferred to pha
 - [x] Mention-chip highlighting in messages (web `RichText` has it; mobile `MessageMarkdown` plain) — A5
 - [x] Manual light/dark/system theme toggle (web has it; mobile follows system only) — A2
 - [x] Read receipts (seen-by stack) — A4
-- [ ] **Web → mobile parity:** web still lacks a dedicated Thread view (mobile has `app/thread/[id].tsx`) — B1
+- [x] **Web → mobile parity:** web Thread view added (right panel in AppShell) — B1. API gained `GET /api/messages/:id` + serialized replies.
 
 ## Remaining / next up
 

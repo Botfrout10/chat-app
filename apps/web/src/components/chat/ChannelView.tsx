@@ -4,6 +4,7 @@ import { useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-quer
 import { api } from "@/lib/api";
 import { getSocket, connectSocket } from "@/lib/socket";
 import { useChatStore } from "@/store/chat";
+import { useUiStore } from "@/store/ui";
 import { MessageItem } from "./MessageItem";
 import { Button } from "@/components/ui/button";
 import { AtSign, BrainCircuit, CornerDownLeft, Hash, Sparkles } from "lucide-react";
@@ -127,6 +128,7 @@ function AtBottomSync({ isAtBottomRef }: { isAtBottomRef: React.MutableRefObject
 
 export function ChannelView({ channelId, workspaceId, channel }: Props) {
   const qc = useQueryClient();
+  const openThread = useUiStore((s) => s.openThread);
   const [input, setInput] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -504,6 +506,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
                   key={m.id}
                   msg={m}
                   onReply={setReplyTo}
+                  onViewThread={openThread}
                   isOwn={isOwn}
                   meId={meId}
                   isAiChannel={isAiChannel}
