@@ -1,15 +1,30 @@
 import { Platform } from "react-native";
+import { Text, View } from "react-native";
 import Markdown from "react-native-markdown-display";
 
 import { useTheme } from "@/theme/useTheme";
 
 const monospace = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
 
+// mirror web RichText: split content into plain segments and @mentions
+const SPLIT = /(@[\p{L}\p{N}_.-]+)/gu;
+
 /**
  * Themed markdown renderer for chat messages (matches the web RichText
- * rendering: GFM-ish bold/italic/code/lists/links/headings).
+ * rendering: GFM-ish bold/italic/code/lists/links/headings) with @mention
+ * chip highlighting — me vs known member vs unknown — like the web.
  */
-export function MessageMarkdown({ content, own }: { content: string; own?: boolean }) {
+export function MessageMarkdown({
+  content,
+  own,
+  memberTokens,
+  meName,
+}: {
+  content: string;
+  own?: boolean;
+  memberTokens?: Set<string>;
+  meName?: string;
+}) {
   const t = useTheme();
   const color = own ? t.primaryForeground : t.foreground;
 
@@ -56,5 +71,46 @@ export function MessageMarkdown({ content, own }: { content: string; own?: boole
     hr: { backgroundColor: t.border, marginVertical: 8 },
   };
 
-  return <Markdown style={rules as any}>{content}</Markdown>;
+  function chipStyle(token: string) {
+    const name = token.slice(1).toLowerCase();
+    const isMe = !!meName && name === meName.toLowerCase();
+    const isKnown = !!memberTokens && memberTokens.has(name);
+    if (own) {
+      return isMe
+        ? { color: t.primaryForeground, backgroundColor: t.primary }
+        : isKnown
+          ? { color: t.primaryForeground, backgroundColor: "rgba(255,255,255,0.25)" }
+          : { color: "rgba(255,255,255,0.85)", backgroundColor: "rgba(255,255,255,0.10)" };
+    }
+    return isMe
+      ? { color: t.primaryForeground, backgroundColor: t.primary }
+      : isKnown
+        ? { color: t.accent700, backgroundColor: t.accent100 }
+        : { color: t.mutedForeground, backgroundColor: t.muted };
+  }
+
+  const parts = content.split(SPLIT);
+  return (
+    <View>
+      {parts.map((part, i) => {
+        if (part.startsWith("@") && part.length > 1 && SPLIT.test(part)) {
+          SPLIT.lastIndex = 0;
+          return (
+            <Text
+              key={i}
+              style={[{ borderRadius: 5, paddingHorizontal: 3, fontSize: 15, fontWeight: "600" }, chipStyle(part)]}
+            >
+              {part}
+            </Text>
+          );
+        }
+        if (!part) return null;
+        return (
+          <Markdown key={i} style={rules as any}>
+            {part}
+          </Markdown>
+        );
+      })}
+    </View>
+  );
 }

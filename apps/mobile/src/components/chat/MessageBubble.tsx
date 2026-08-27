@@ -19,11 +19,13 @@ export function MessageBubble({
   me,
   firstOfGroup,
   onLongPress,
+  memberTokens,
 }: {
   message: Message;
   me: User | null;
   firstOfGroup: boolean;
   onLongPress?: (m: Message) => void;
+  memberTokens?: Set<string>;
 }) {
   const t = useTheme();
   const own = me?.id === message.senderId;
@@ -78,7 +80,7 @@ export function MessageBubble({
             )}
           </View>
         )}
-        <MessageMarkdown content={message.content} own={own} />
+        <MessageMarkdown content={message.content} own={own} memberTokens={memberTokens} meName={me?.name} />
         {message.editedAt ? (
           <Text style={[styles.edited, { color: own ? t.accent100 : t.mutedForeground, alignSelf: "flex-end" }]}> (edited)</Text>
         ) : null}

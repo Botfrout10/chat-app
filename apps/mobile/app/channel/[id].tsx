@@ -20,7 +20,7 @@ import { ActionSheet, QuickReactions, type Action } from "@/components/chat/Acti
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { MessageComposer, type ComposerState } from "@/components/chat/MessageComposer";
 import { joinChannelRoom, leaveChannelRoom } from "@/hooks/useChatEvents";
-import { useMe, useMessages } from "@/hooks/queries";
+import { useMe, useMembers, useMessages } from "@/hooks/queries";
 import { useRequireSession } from "@/hooks/useRequireSession";
 import { useSession } from "@/lib/session";
 import { useChatStore } from "@/stores/chat";
@@ -44,6 +44,8 @@ export default function ChannelView() {
   const meQuery = useMe(!!token);
   const me = meQuery.data ?? null;
 
+  const activeWorkspaceId = useChatStore((s) => s.activeWorkspaceId);
+
   const blocker = useRequireSession();
 
   const messagesQuery = useMessages(channelId);
@@ -56,6 +58,13 @@ export default function ChannelView() {
     enabled: !!llmStream,
   });
   const llmLabel = llmQuery.data?.find((c) => c.id === llmStream?.connectionId)?.label;
+
+  // member name set drives @mention chip highlighting (me vs known vs unknown)
+  const membersQuery = useMembers(activeWorkspaceId);
+  const memberTokens = useMemo(
+    () => new Set((membersQuery.data ?? []).map((m) => m.name.toLowerCase())),
+    [membersQuery.data],
+  );
 
   const [composerState, setComposerState] = useState<ComposerState>({ kind: "idle" });
   const [sheetFor, setSheetFor] = useState<Message | null>(null);
@@ -168,6 +177,7 @@ export default function ChannelView() {
             params: {
               id: sheetFor.id,
               channelId,
+              workspaceId: activeWorkspaceId,
               name: params.name ?? "",
               parent: JSON.stringify(sheetFor),
             },
@@ -285,6 +295,7 @@ export default function ChannelView() {
                   message={item}
                   me={me}
                   firstOfGroup={firstOfGroup}
+                  memberTokens={memberTokens}
                   onLongPress={setSheetFor}
                 />
               );

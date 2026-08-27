@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -18,7 +18,7 @@ import { api } from "@/api/client";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { MessageComposer, type ComposerState } from "@/components/chat/MessageComposer";
 import { joinChannelRoom, leaveChannelRoom } from "@/hooks/useChatEvents";
-import { useMe, useReplies } from "@/hooks/queries";
+import { useMe, useMembers, useReplies } from "@/hooks/queries";
 import { useRequireSession } from "@/hooks/useRequireSession";
 import { useSession } from "@/lib/session";
 import { useTheme } from "@/theme/useTheme";
@@ -41,6 +41,7 @@ export default function ThreadView() {
   const params = useLocalSearchParams<{
     id: string;
     channelId?: string;
+    workspaceId?: string;
     parent?: string;
     name?: string;
   }>();
@@ -57,6 +58,12 @@ export default function ThreadView() {
   const blocker = useRequireSession();
 
   const repliesQuery = useReplies(threadId);
+  // member name set drives @mention chip highlighting (me vs known vs unknown)
+  const membersQuery = useMembers(params.workspaceId);
+  const memberTokens = useMemo(
+    () => new Set((membersQuery.data ?? []).map((m) => m.name.toLowerCase())),
+    [membersQuery.data],
+  );
   const [sendError, setSendError] = useState<string | null>(null);
   const [composerState, setComposerState] = useState<ComposerState>({ kind: "idle" });
 
@@ -152,12 +159,12 @@ export default function ThreadView() {
             ListFooterComponent={
               parent ? (
                 <View style={[styles.parentWrap, { backgroundColor: t.muted }]}>
-                  <MessageBubble message={parent} me={me} firstOfGroup />
+                  <MessageBubble message={parent} me={me} firstOfGroup memberTokens={memberTokens} />
                 </View>
               ) : null
             }
             renderItem={({ item }) => (
-              <MessageBubble message={item} me={me} firstOfGroup />
+              <MessageBubble message={item} me={me} firstOfGroup memberTokens={memberTokens} />
             )}
             contentContainerStyle={{ paddingVertical: 8 }}
           />
