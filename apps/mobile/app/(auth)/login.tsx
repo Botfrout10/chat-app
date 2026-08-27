@@ -8,12 +8,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSession } from "@/lib/session";
 import { useTheme } from "@/theme/useTheme";
@@ -26,6 +27,7 @@ const credentialsSchema = z.object({
 export default function Login() {
   const t = useTheme();
   const { signIn, token } = useSession();
+  const insets = useSafeAreaInsets();
 
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [name, setName] = useState("");
@@ -67,93 +69,105 @@ export default function Login() {
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: t.sidebar }]}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={[styles.hero, { backgroundColor: t.sidebar }]}>
-          <Text style={styles.logo}>Pulse</Text>
-          <Text style={[styles.tagline, { color: t.accent300 }]}>
-            Team chat, anywhere.
-          </Text>
-        </View>
+    <SafeAreaView style={[styles.safe, { backgroundColor: t.sidebar }]} edges={["top", "left", "right"]}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          <View style={[styles.hero, { backgroundColor: t.sidebar }]}>
+            <Text style={styles.logo}>Pulse</Text>
+            <Text style={[styles.tagline, { color: t.accent300 }]}>Team chat, anywhere.</Text>
+          </View>
 
-        <View style={[styles.card, { backgroundColor: t.background }]}>
-          <Text style={[styles.heading, { color: t.foreground }]}>
-            {mode === "signin" ? "Welcome back" : "Create your account"}
-          </Text>
+          <View style={[styles.card, { backgroundColor: t.background, paddingBottom: Math.max(24, insets.bottom + 16) }]}>
+            <Text style={[styles.heading, { color: t.foreground }]}>
+              {mode === "signin" ? "Welcome back" : "Create your account"}
+            </Text>
 
-          {mode === "signup" && (
+            {mode === "signup" && (
+              <TextInput
+                style={[
+                  styles.input,
+                  { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground },
+                ]}
+                placeholder="Name"
+                placeholderTextColor={t.mutedForeground}
+                autoCapitalize="words"
+                value={name}
+                onChangeText={setName}
+                returnKeyType="next"
+              />
+            )}
             <TextInput
               style={[
                 styles.input,
                 { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground },
               ]}
-              placeholder="Name"
+              placeholder="Email"
               placeholderTextColor={t.mutedForeground}
-              autoCapitalize="words"
-              value={name}
-              onChangeText={setName}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              value={email}
+              onChangeText={setEmail}
+              returnKeyType="next"
             />
-          )}
-          <TextInput
-            style={[
-              styles.input,
-              { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground },
-            ]}
-            placeholder="Email"
-            placeholderTextColor={t.mutedForeground}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoComplete="email"
-            value={email}
-            onChangeText={setEmail}
-          />
-          <TextInput
-            style={[
-              styles.input,
-              { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground },
-            ]}
-            placeholder="Password"
-            placeholderTextColor={t.mutedForeground}
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-          />
+            <TextInput
+              style={[
+                styles.input,
+                { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground },
+              ]}
+              placeholder="Password"
+              placeholderTextColor={t.mutedForeground}
+              secureTextEntry
+              value={password}
+              onChangeText={setPassword}
+              returnKeyType="done"
+              onSubmitEditing={submit}
+            />
 
-          {!!error && <Text style={[styles.error, { color: t.destructive }]}>{error}</Text>}
+            {!!error && <Text style={[styles.error, { color: t.destructive }]}>{error}</Text>}
 
-          <Pressable
-            accessibilityRole="button"
-            disabled={busy}
-            style={({ pressed }) => [
-              styles.primaryBtn,
-              { backgroundColor: busy ? t.primaryHover : t.primary, opacity: pressed ? 0.9 : 1 },
-            ]}
-            onPress={submit}
-          >
-            {busy ? (
-              <ActivityIndicator color={t.primaryForeground} />
-            ) : (
-              <Text style={[styles.primaryBtnText, { color: t.primaryForeground }]}>
-                {mode === "signin" ? "Sign in" : "Sign up"}
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                { backgroundColor: busy ? t.primaryHover : t.primary, opacity: pressed ? 0.9 : 1 },
+              ]}
+              onPress={submit}
+            >
+              {busy ? (
+                <ActivityIndicator color={t.primaryForeground} />
+              ) : (
+                <Text style={[styles.primaryBtnText, { color: t.primaryForeground }]}>
+                  {mode === "signin" ? "Sign in" : "Sign up"}
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              onPress={() => {
+                setMode(mode === "signin" ? "signup" : "signin");
+                setError(null);
+              }}
+              style={styles.switchWrap}
+            >
+              <Text style={[styles.switchText, { color: t.mutedForeground }]}>
+                {mode === "signin" ? "No account? " : "Already have an account? "}
+                <Text style={{ color: t.primary, fontWeight: "600" }}>{mode === "signin" ? "Sign up" : "Sign in"}</Text>
               </Text>
-            )}
-          </Pressable>
-
-          <Pressable
-            onPress={() => {
-              setMode(mode === "signin" ? "signup" : "signin");
-              setError(null);
-            }}
-            style={styles.switchWrap}
-          >
-            <Text style={[styles.switchText, { color: t.mutedForeground }]}>
-              {mode === "signin" ? "No account? " : "Already have an account? "}
-              <Text style={{ color: t.primary, fontWeight: "600" }}>
-                {mode === "signin" ? "Sign up" : "Sign in"}
-              </Text>
-            </Text>
-          </Pressable>
-        </View>
+            </Pressable>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -162,10 +176,14 @@ export default function Login() {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   flex: { flex: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: "flex-end" },
   hero: {
     flex: 1,
+    minHeight: 120,
     alignItems: "center",
     justifyContent: "center",
+    paddingTop: 32,
+    paddingBottom: 16,
   },
   logo: {
     fontSize: 48,

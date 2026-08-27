@@ -13,7 +13,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/api/client";
 import { ActionSheet, QuickReactions, type Action } from "@/components/chat/ActionSheet";
@@ -38,6 +38,7 @@ export default function ChannelView() {
   const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ id: string; name?: string; type?: string; peer?: string }>();
   const channelId = params.id;
+  const insets = useSafeAreaInsets();
 
   const { token } = useSession();
   const meQuery = useMe(!!token);
@@ -239,7 +240,7 @@ export default function ChannelView() {
         : `${typingUsers.length} people are typing…`;
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: t.background }]} edges={["top"]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: t.background }]} edges={["top", "bottom"]}>
       {/* header */}
       <View style={[styles.header, { borderBottomColor: t.border }]}>
         <Pressable accessibilityRole="button" hitSlop={10} onPress={() => router.back()}>
@@ -257,8 +258,8 @@ export default function ChannelView() {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
       >
         {messagesQuery.isPending ? (
           <ActivityIndicator style={{ marginTop: 32 }} color={t.primary} />
