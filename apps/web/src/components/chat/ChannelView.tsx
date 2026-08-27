@@ -419,9 +419,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     return (conn?.modelId as string | undefined) ?? undefined;
   }, [llmConnections, llmConnectionIdForChannel]);
   const isAiChannel = !!llmConnectionIdForChannel;
-
-  if (isLoading) return <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading messages…</div>;
-
   const isDm = channel?.type === "dm";
   const title = isDm ? `${channel?.dmPeer?.name ?? "direct message"}` : `${channel?.name ?? channelId.slice(0, 8)}`;
   const aiBotId = useMemo(() => {
@@ -429,6 +426,8 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     const conn = (llmConnections as any[])?.find((c: any) => c.id === llmConnectionIdForChannel);
     return (conn?.botUserId as string | undefined) ?? (channel as any)?.dmPeer?.id ?? null;
   }, [isAiChannel, llmConnections, llmConnectionIdForChannel, channel]);
+
+  if (isLoading) return <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading messages…</div>;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--background)]">
