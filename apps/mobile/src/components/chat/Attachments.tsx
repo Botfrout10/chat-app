@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 
-import { api } from "@/api/client";
+import { api, rewriteAssetUrl } from "@/api/client";
 import { useTheme } from "@/theme/useTheme";
 import type { Attachment } from "@/types";
 
@@ -36,21 +36,36 @@ export function Attachments({ attachments }: { attachments: Attachment[] }) {
 function AttachmentImage({ attachment }: { attachment: Attachment }) {
   const t = useTheme();
   const signed = useSignedUrl(attachment.key);
+  const url = signed.data?.url ? rewriteAssetUrl(signed.data.url) : null;
+
+  if (signed.isError) {
+    return (
+      <View style={[styles.imageWrap, { backgroundColor: t.muted, alignItems: "center", justifyContent: "center" }]}>
+        <Ionicons name="alert-circle-outline" size={24} color={t.destructive} />
+        <Text style={{ color: t.destructive, fontSize: 11, marginTop: 4 }}>Failed to load image</Text>
+      </View>
+    );
+  }
 
   return (
     <Pressable
       onPress={() => {
-        const url = signed.data?.url;
         if (url) void Linking.openURL(url);
       }}
-      disabled={!signed.data}
+      disabled={!url}
       style={[styles.imageWrap, { backgroundColor: t.muted }]}
     >
-      {signed.data?.url ? (
-        <Image source={{ uri: signed.data.url }} style={styles.image} resizeMode="cover" />
+      {url ? (
+        <Image
+          source={{ uri: url }}
+          style={styles.image}
+          resizeMode="cover"
+          onError={(e) => console.warn("[AttachmentImage] load error", e.nativeEvent?.error ?? e)}
+        />
       ) : (
         <View style={styles.loading}>
           <Ionicons name="image-outline" size={28} color={t.mutedForeground} />
+          {signed.isFetching && <Text style={{ color: t.mutedForeground, fontSize: 10, marginTop: 4 }}>Loading…</Text>}
         </View>
       )}
     </Pressable>
@@ -67,11 +82,11 @@ function formatSize(bytes: number): string {
 function AttachmentFile({ attachment }: { attachment: Attachment }) {
   const t = useTheme();
   const signed = useSignedUrl(attachment.key);
+  const url = signed.data?.url ? rewriteAssetUrl(signed.data.url) : null;
 
   return (
     <Pressable
       onPress={() => {
-        const url = signed.data?.url;
         if (url) void Linking.openURL(url);
       }}
       style={[styles.fileChip, { backgroundColor: t.accent50, borderColor: t.border }]}

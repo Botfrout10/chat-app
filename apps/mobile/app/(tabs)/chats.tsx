@@ -89,10 +89,12 @@ export default function Chats() {
   }, [notificationsQuery.data]);
 
   const atTopRef = useRef(true);
-  const { panHandlers, pullDistance } = usePullToPalette({
+  const { panHandlers: dragHandlers, pullDistance } = usePullToPalette({
     enabled: !paletteOpen,
     atTopRef,
     onOpen: () => setPaletteOpen(true),
+    threshold: 64,
+    ignoreAtTop: true,
   });
 
   const channels = channelsQuery.data ?? [];
@@ -180,22 +182,24 @@ export default function Chats() {
         </View>
       </View>
 
-      {/* pull-down hint */}
-      {pullDistance > 0 && (
-        <View style={[styles.pullHint, { backgroundColor: t.muted, borderColor: t.border }]}>
-          <Ionicons name={pullDistance > 88 ? "sparkles" : "chevron-down"} size={14} color={t.primary} />
-          <Text style={[styles.pullHintText, { color: t.primary }]}>
-            {pullDistance > 88 ? "Release to open palette" : pullDistance > 40 ? "Keep pulling for palette" : "Pull down for palette"}
-          </Text>
-        </View>
-      )}
+      {/* drag handle for palette — pull here, list pull stays as refresh */}
+      <View {...dragHandlers} style={styles.dragHandle}>
+        <View style={[styles.dragPill, { backgroundColor: t.border }]} />
+        {pullDistance > 0 && (
+          <View style={[styles.pullHint, { backgroundColor: t.muted, borderColor: t.border }]}>
+            <Ionicons name={pullDistance > 56 ? "sparkles" : "chevron-down"} size={14} color={t.primary} />
+            <Text style={[styles.pullHintText, { color: t.primary }]}>
+              {pullDistance > 56 ? "Release to open palette" : "Pull down for palette"}
+            </Text>
+          </View>
+        )}
+      </View>
 
       {(channelsQuery.isPending || workspacesQuery.isPending) && (
         <ActivityIndicator style={{ marginTop: 24 }} color={t.primary} />
       )}
 
-      <View style={{ flex: 1 }} {...panHandlers}>
-        <FlatList
+      <FlatList
           onScroll={(e) => {
             atTopRef.current = e.nativeEvent.contentOffset.y <= 4;
           }}
@@ -283,7 +287,6 @@ export default function Chats() {
           onRefresh={refresh}
           contentContainerStyle={{ paddingBottom: 24 }}
         />
-      </View>
 
       {/* workspace switcher */}
       <Modal
@@ -300,7 +303,7 @@ export default function Chats() {
                 key={w.id}
                 onPress={() => {
                   setActiveWorkspace(w.id);
-                  setModal(null);
+                  closeModal();
                 }}
                 style={[
                   styles.wsRow,
@@ -715,6 +718,19 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+  },
+  dragHandle: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 6,
+    paddingBottom: 2,
+    gap: 4,
+  },
+  dragPill: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    opacity: 0.6,
   },
   pullHint: {
     flexDirection: "row",

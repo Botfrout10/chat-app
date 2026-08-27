@@ -1,7 +1,7 @@
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 
-import { api } from "@/api/client";
+import { api, rewriteAssetUrl } from "@/api/client";
 
 export type PickedFile = {
   uri: string;
@@ -82,7 +82,8 @@ export async function uploadAttachment(file: PickedFile): Promise<UploadedMeta> 
   });
 
   const blob = await (await fetch(file.uri)).blob();
-  const res = await fetch(presigned.url, {
+  const putUrl = rewriteAssetUrl(presigned.url);
+  const res = await fetch(putUrl, {
     method: "PUT",
     headers: { "Content-Type": file.mime },
     body: blob,

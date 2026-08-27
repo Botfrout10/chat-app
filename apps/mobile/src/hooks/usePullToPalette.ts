@@ -6,9 +6,11 @@ type Args = {
   atTopRef: React.MutableRefObject<boolean>;
   onOpen: () => void;
   threshold?: number;
+  /** when true, atTopRef is ignored — for a dedicated drag handle above the list */
+  ignoreAtTop?: boolean;
 };
 
-export function usePullToPalette({ enabled, atTopRef, onOpen, threshold = 96 }: Args) {
+export function usePullToPalette({ enabled, atTopRef, onOpen, threshold = 96, ignoreAtTop = false }: Args) {
   const [pullDistance, setPullDistance] = useState(0);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
@@ -29,13 +31,13 @@ export function usePullToPalette({ enabled, atTopRef, onOpen, threshold = 96 }: 
       PanResponder.create({
         onMoveShouldSetPanResponder: (_: GestureResponderEvent, g: PanResponderGestureState) => {
           if (!enabled) return false;
-          if (!atTopRef.current) return false;
+          if (!ignoreAtTop && !atTopRef.current) return false;
           // only vertical pull down, not horizontal scroll
           return g.dy > 12 && g.dy > Math.abs(g.dx) * 1.2;
         },
         onMoveShouldSetPanResponderCapture: () => false,
         onPanResponderMove: (_: GestureResponderEvent, g: PanResponderGestureState) => {
-          if (g.dy > 0 && atTopRef.current) {
+          if (g.dy > 0 && (ignoreAtTop || atTopRef.current)) {
             // clamp for visual feedback
             setPullDistance(Math.min(g.dy, 140));
           }
@@ -44,7 +46,7 @@ export function usePullToPalette({ enabled, atTopRef, onOpen, threshold = 96 }: 
         onPanResponderTerminate: () => setPullDistance(0),
         onPanResponderTerminationRequest: () => true,
       }),
-    [enabled, atTopRef, handleRelease],
+    [enabled, atTopRef, handleRelease, ignoreAtTop],
   );
 
   return { panHandlers: panResponder.panHandlers, pullDistance };

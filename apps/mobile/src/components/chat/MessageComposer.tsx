@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -164,12 +165,22 @@ export function MessageComposer({
           placeholderTextColor={t.mutedForeground}
           value={text}
           onChangeText={handleChange}
+          // web (react-native-web) physical keyboard via browser may fire onChange with target.value
+          onChange={(e: unknown) => {
+            if (Platform.OS !== "web") return;
+            const v = (e as { nativeEvent?: { text?: string }; target?: { value?: string } })?.nativeEvent?.text ??
+              (e as { target?: { value?: string } })?.target?.value;
+            if (typeof v === "string" && v !== text) handleChange(v);
+          }}
           onBlur={() => {
             if (stopTimer.current) clearTimeout(stopTimer.current);
             if (typingRef.current) emitTyping(false);
           }}
           multiline
           maxLength={MAX_LEN}
+          autoCorrect
+          keyboardType="default"
+          editable={!disabled}
         />
         <Pressable
           accessibilityRole="button"

@@ -24,6 +24,26 @@ export const API_URL =
   process.env.EXPO_PUBLIC_API_URL ??
   (Platform.OS === "android" ? "http://10.0.2.2:3001" : "http://localhost:3001");
 
+/**
+ * MinIO presigned URLs are generated with S3_ENDPOINT host (often localhost/minio).
+ * Android emulator cannot reach localhost — rewrite to 10.0.2.2 so Image fetch/PUT succeeds.
+ * iOS simulator and web keep localhost.
+ */
+export function rewriteAssetUrl(url: string): string {
+  if (Platform.OS !== "android") return url;
+  try {
+    const u = new URL(url);
+    if (u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "minio") {
+      u.hostname = "10.0.2.2";
+      return u.toString();
+    }
+  } catch {
+    // fallback simple replace for non-URL strings
+    return url.replace(/\/\/(localhost|minio|127\.0\.0\.1)(?=[:/])/g, "//10.0.2.2");
+  }
+  return url;
+}
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
