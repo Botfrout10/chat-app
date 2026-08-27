@@ -355,7 +355,7 @@ export default function ChannelView() {
           <View style={{ paddingHorizontal: 14, paddingBottom: 4 }}>
             <Text style={{ color: t.mutedForeground, fontSize: 12, fontWeight: "600" }}>
               <Ionicons name="sparkles" size={12} color={t.mutedForeground} /> {llmLabel ?? "AI"}{" "}
-              {llmStream.text ? "is writing…" : "is thinking…"}
+              {llmStream.text ? "is writing…" : llmStream.thinking ? "is thinking…" : "Loading model into GPU…"}
             </Text>
             {!!llmStream.thinking && (
               <Pressable

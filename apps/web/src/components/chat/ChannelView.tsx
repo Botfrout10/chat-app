@@ -528,7 +528,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
                 <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)]"><Sparkles className="h-3 w-3" /></span>
                 {connLabel.get(stream.connectionId) ?? "AI"}
                 {!stream.text && !stream.thinking && (
-                  <Shimmer className="font-normal text-[var(--muted-foreground)]">is thinking…</Shimmer>
+                  <Shimmer className="font-normal text-[var(--muted-foreground)]">Loading model into GPU…</Shimmer>
                 )}
               </div>
               {!!stream.thinking && (

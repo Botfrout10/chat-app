@@ -281,7 +281,6 @@ export function AppSidebar() {
                 key={ch.id}
                 active={activeChannelId === ch.id}
                 onClick={() => setActiveChannel(ch.id)}
-                unread={!ch.lastReadMessageId}
                 title={peer.name ?? peer.email}
               >
                 <Avatar className="h-6 w-6">
