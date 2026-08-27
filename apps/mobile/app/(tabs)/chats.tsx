@@ -248,7 +248,7 @@ export default function Chats() {
                   style={({ pressed }) => [styles.row, { opacity: pressed || llmOpening === conn.id ? 0.6 : 1 }]}
                 >
                   <View style={[rowStyles.hashWrap, { backgroundColor: t.accent100 }]}>
-                    <Text style={{ color: t.accent700, fontWeight: "700", fontSize: 14 }}>✦</Text>
+                    <Ionicons name="sparkles" size={14} color={t.accent700} />
                   </View>
                   <Text style={[styles.rowTitle, { color: t.foreground, flex: 1 }]} numberOfLines={1}>
                     {conn.label}
@@ -566,7 +566,7 @@ function CreateChannelModal({
           >
             <Ionicons name={isPrivate ? "lock-closed" : "globe-outline"} size={18} color={t.primary} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.rowTitle, { color: t.foreground }]}>{isPrivate ? "🔒 Private" : "🌐 Public"}</Text>
+              <Text style={[styles.rowTitle, { color: t.foreground }]}>{isPrivate ? "Private" : "Public"}</Text>
               <Text style={{ color: t.mutedForeground, fontSize: 12 }}>
                 {isPrivate ? "Invite only — hidden from non-members" : "Everyone in the workspace can join"}
               </Text>

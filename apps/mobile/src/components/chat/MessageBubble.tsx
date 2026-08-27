@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Attachments } from "@/components/chat/Attachments";
@@ -66,7 +67,8 @@ export function MessageBubble({
               hitSlop={6}
             >
               <Text style={[styles.thinkingLabel, { color: own ? t.accent300 : t.mutedForeground }]}>
-                {showThinking ? "▾" : "▸"} 🧠 Thinking
+                {showThinking ? "▾" : "▸"}{" "}
+                <Ionicons name="bulb-outline" size={12} color={own ? t.accent300 : t.mutedForeground} /> Thinking
               </Text>
             </Pressable>
             {showThinking && (

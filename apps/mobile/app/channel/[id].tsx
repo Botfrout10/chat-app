@@ -314,7 +314,8 @@ export default function ChannelView() {
         {!!llmStream && (
           <View style={{ paddingHorizontal: 14, paddingBottom: 4 }}>
             <Text style={{ color: t.mutedForeground, fontSize: 12, fontWeight: "600" }}>
-              ✦ {llmLabel ?? "AI"} {llmStream.text ? "is writing…" : "is thinking…"}
+              <Ionicons name="sparkles" size={12} color={t.mutedForeground} /> {llmLabel ?? "AI"}{" "}
+              {llmStream.text ? "is writing…" : "is thinking…"}
             </Text>
             {!!llmStream.thinking && (
               <Pressable
@@ -324,7 +325,8 @@ export default function ChannelView() {
                 style={{ paddingVertical: 2 }}
               >
                 <Text style={{ color: t.mutedForeground, fontSize: 11, fontWeight: "600" }}>
-                  {showStreamThinking ? "▾" : "▸"} 🧠 Thinking
+                  {showStreamThinking ? "▾" : "▸"}{" "}
+                  <Ionicons name="bulb-outline" size={11} color={t.mutedForeground} /> Thinking
                 </Text>
               </Pressable>
             )}
