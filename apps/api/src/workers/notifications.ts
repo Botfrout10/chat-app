@@ -71,11 +71,12 @@ async function processNotification(job: Job<NotifyJobData>, connection: IORedis)
   );
 
   // DB-recorded mentions are authoritative; regex tokens as fallback for robustness
+  // only type='user' counts for human notifications — llm mentions (type='llm') are excluded
   let dbMentionIds = new Set<string>();
   try {
     const { mention } = await import("@chat/db/schema");
     const mrows = await db.select().from(mention).where(eq(mention.messageId, msg.id));
-    dbMentionIds = new Set(mrows.map((m) => m.mentionedUserId));
+    dbMentionIds = new Set(mrows.filter((m: any) => (m as any).type !== "llm").map((m) => m.mentionedUserId));
   } catch {}
   const mentionTokens = extractMentionTokens(String(msg.content));
   const senderName = msg.sender?.name ?? "Someone";

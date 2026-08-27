@@ -288,8 +288,12 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       const local = String(m?.email ?? "").split("@")[0]?.toLowerCase();
       if (local) s.add(local);
     }
+    for (const c of (llmConnections as any[]) ?? []) {
+      if (c?.mentionName) s.add(String(c.mentionName).toLowerCase());
+      if (c?.label) s.add(String(c.label).toLowerCase());
+    }
     return s;
-  }, [members]);
+  }, [members, llmConnections]);
 
   // @mention autocomplete state — includes connected AI models
   const modelCandidates = useMemo(

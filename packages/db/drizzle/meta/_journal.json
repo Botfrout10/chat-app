@@ -43,6 +43,13 @@
       "when": 1787678413198,
       "tag": "0005_smooth_shiver_man",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787840342608,
+      "tag": "0006_quick_moon_knight",
+      "breakpoints": true
     }
   ]
 }

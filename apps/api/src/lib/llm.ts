@@ -100,14 +100,49 @@ async function* streamChatCompletion(
 // ---------------------------------------------------------------------------
 
 const generating = new Set<string>(); // connection ids currently mid-generation
-// prompt message id -> active generation, so deleting the prompt cancels it
-const activeByPrompt = new Map<string, { connId: string; controller: AbortController }>();
+// prompt message id -> all active generations for that prompt (supports multi-model @mentions)
+// so deleting/editing the prompt cancels every generation it triggered
+const activeByPrompt = new Map<string, Map<string, AbortController>>();
 
 export function abortLlmGenerationForMessage(promptMessageId: string): boolean {
-  const active = activeByPrompt.get(promptMessageId);
-  if (!active) return false;
-  active.controller.abort();
+  const controllers = activeByPrompt.get(promptMessageId);
+  if (!controllers?.size) return false;
+  for (const c of controllers.values()) c.abort();
+  activeByPrompt.delete(promptMessageId);
   return true;
+}
+
+function trackPrompt(promptMessageId: string, connId: string, controller: AbortController) {
+  let m = activeByPrompt.get(promptMessageId);
+  if (!m) {
+    m = new Map();
+    activeByPrompt.set(promptMessageId, m);
+  }
+  m.set(connId, controller);
+}
+
+function untrackPrompt(promptMessageId: string, connId: string, controller: AbortController) {
+  const m = activeByPrompt.get(promptMessageId);
+  if (!m) return;
+  if (m.get(connId) === controller) m.delete(connId);
+  if (m.size === 0) activeByPrompt.delete(promptMessageId);
+}
+
+// per-user completion rate limit (mention-triggered + DM auto-reply)
+// 20 generations per minute per user — protects provider quota and prevents spam loops
+async function checkLlmCompletionRateLimit(redis: any, userId: string): Promise<boolean> {
+  try {
+    const { registerRateLimitCommands } = await import("./rateLimit.js");
+    registerRateLimitCommands(redis);
+    const key = `rl:llm-complete:${userId}`;
+    const member = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // 20 per 60s
+    const [allowedRaw] = (await redis.slidingWindow(key, Date.now(), 60_000, 20, member)) as number[];
+    return Number(allowedRaw) === 1;
+  } catch {
+    // if redis fails, allow (fail open) — don't block chat
+    return true;
+  }
 }
 
 async function assembleContext(db: any, conn: LlmConnectionRow, channelId: string): Promise<ChatMessage[]> {
@@ -148,12 +183,20 @@ export async function triggerLlmReply(
 
   if (!args.conn.botUserId) await ensureBotUser(app, args.conn);
   if (generating.has(args.conn.id)) return false; // one generation at a time per connection
+  // per-user completion rate limit (protect provider quota)
+  const ownerId = (args.conn as any).ownerId as string;
+  if (ownerId && !(await checkLlmCompletionRateLimit(redis, ownerId))) {
+    await redis.publish("chat:events", JSON.stringify({
+      type: "llm:error", channelId: args.channelId, connectionId: args.conn.id, error: "Rate limit: too many AI replies, try again shortly.",
+    }));
+    return false;
+  }
   generating.add(args.conn.id);
 
   const controller = new AbortController();
   const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(GENERATION_TIMEOUT_MS)]);
   if (args.promptMessageId) {
-    activeByPrompt.set(args.promptMessageId, { connId: args.conn.id, controller });
+    trackPrompt(args.promptMessageId, args.conn.id, controller);
   }
 
   // typing indicator for the duration of generation
@@ -208,9 +251,7 @@ export async function triggerLlmReply(
     return false;
   } finally {
     generating.delete(args.conn.id);
-    if (args.promptMessageId && activeByPrompt.get(args.promptMessageId)?.controller === controller) {
-      activeByPrompt.delete(args.promptMessageId);
-    }
+    if (args.promptMessageId) untrackPrompt(args.promptMessageId, args.conn.id, controller);
     await redis.publish("chat:events", JSON.stringify({
       type: "llm:typing", channelId: args.channelId, connectionId: args.conn.id, isTyping: false,
     }));
@@ -247,11 +288,15 @@ export async function maybeTriggerLlm(
       }
     }
 
-    // mention-triggered: match my connections' mention names against @tokens
+    // mention-triggered: match my connections' mention names / labels against @tokens
+    // mirrors the second pass in messages.ts (mentionName + label, lowercased)
     const tokens = new Set((args.content.match(/@([\p{L}\p{N}_.-]+)/gu) ?? []).map((t) => t.slice(1).toLowerCase()));
     if (!tokens.size) return;
     for (const conn of conns) {
-      if (tokens.has(conn.mentionName.toLowerCase())) {
+      const mname = String(conn.mentionName ?? "").toLowerCase();
+      const label = String(conn.label ?? "").toLowerCase();
+      const matched = (mname && tokens.has(mname)) || (label && tokens.has(label));
+      if (matched) {
         void triggerLlmReply(app, { conn, channelId: args.channel.id, promptMessageId: args.messageId });
       }
     }

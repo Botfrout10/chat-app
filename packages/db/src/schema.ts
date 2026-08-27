@@ -125,6 +125,7 @@ export const mention = pgTable("mention", {
   channelId: text("channel_id").notNull().references(() => channel.id, { onDelete: "cascade" }),
   mentionedUserId: text("mentioned_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   senderId: text("sender_id").notNull().references(() => user.id),
+  type: varchar("type", { length: 10 }).notNull().default("user").$type<"user" | "llm">(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   primaryKey({ columns: [t.messageId, t.mentionedUserId] }),

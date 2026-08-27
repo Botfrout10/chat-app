@@ -141,12 +141,13 @@ export async function registerMessageRoutes(app: FastifyInstance) {
       }
     }
 
-    // mentions: match @tokens against workspace member names/emails
-    const mentionRows: { messageId: string; channelId: string; mentionedUserId: string; senderId: string }[] = [];
+    // mentions: match @tokens against workspace member names/emails (type=user)
+    // + second pass over sender's own llm_connections (type=llm) — single pipeline, no fork
+    const mentionRows: { messageId: string; channelId: string; mentionedUserId: string; senderId: string; type: "user" | "llm" }[] = [];
     try {
       const tokens = new Set((parsed.data.content.match(/@([\p{L}\p{N}_.-]+)/gu) ?? []).map((t) => t.slice(1).toLowerCase()));
       if (tokens.size) {
-        const { user: userTable, workspaceMember: wm, mention } = await import("@chat/db/schema");
+        const { user: userTable, workspaceMember: wm, mention, llmConnection } = await import("@chat/db/schema");
         const candidates = await db
           .select({ u: userTable })
           .from(wm)
@@ -157,11 +158,45 @@ export async function registerMessageRoutes(app: FastifyInstance) {
           const uname = (u.name ?? "").toLowerCase();
           const ulocal = (u.email ?? "").split("@")[0]?.toLowerCase() ?? "";
           if ((uname && tokens.has(uname)) || (ulocal && tokens.has(ulocal))) {
-            mentionRows.push({ messageId: id, channelId, mentionedUserId: u.id, senderId: user.id });
+            mentionRows.push({ messageId: id, channelId, mentionedUserId: u.id, senderId: user.id, type: "user" });
+          }
+        }
+        // second pass — sender's personal LLM connections (mentionName / label)
+        const conns = await db.select().from(llmConnection).where(eq(llmConnection.ownerId, user.id));
+        for (const conn of conns as any[]) {
+          const mname = String(conn.mentionName ?? "").toLowerCase();
+          const label = String(conn.label ?? "").toLowerCase();
+          if (!mname && !label) continue;
+          const matched = (mname && tokens.has(mname)) || (label && tokens.has(label));
+          if (!matched) continue;
+          // ensure bot user exists for FK (mirrors lib/llm.ensureBotUser)
+          let botId = conn.botUserId as string | null;
+          if (!botId) {
+            const { llmConnection: llmConn, user: uTable } = await import("@chat/db/schema");
+            const botEmail = `llm+${conn.id}@llm.local`;
+            const [existing] = await db.select().from(uTable).where(eq(uTable.email, botEmail));
+            if (existing) {
+              botId = existing.id;
+            } else {
+              const [created] = await db
+                .insert(uTable)
+                .values({ id: ulid(), name: conn.label, email: botEmail })
+                .onConflictDoNothing()
+                .returning();
+              const bot = created ?? (await db.select().from(uTable).where(eq(uTable.email, botEmail)))[0];
+              botId = bot.id as string;
+            }
+            await db.update(llmConn).set({ botUserId: botId }).where(eq(llmConn.id, conn.id));
+          }
+          if (botId) {
+            // dedupe: don't push duplicate bot for same message
+            if (!mentionRows.some((r) => r.mentionedUserId === botId)) {
+              mentionRows.push({ messageId: id, channelId, mentionedUserId: botId, senderId: user.id, type: "llm" });
+            }
           }
         }
         if (mentionRows.length) {
-          await db.insert(mention).values(mentionRows).onConflictDoNothing();
+          await db.insert(mention).values(mentionRows as any).onConflictDoNothing();
         }
       }
     } catch (e) {

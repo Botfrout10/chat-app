@@ -1,0 +1,1 @@
+ALTER TABLE "mention" ADD COLUMN "type" varchar(10) DEFAULT 'user' NOT NULL;
