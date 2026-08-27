@@ -2,7 +2,7 @@
 import { useMemo, useState, memo } from "react";
 import { api } from "@/lib/api";
 import { RichText, AttachmentPreview } from "./RichText";
-import { BrainCircuit, CornerUpLeft, MessagesSquare, Pencil, ThumbsUp, Heart, Laugh, Trash2, GitBranch } from "lucide-react";
+import { BrainCircuit, CornerUpLeft, MessagesSquare, Pencil, ThumbsUp, Heart, Laugh, Trash2 } from "lucide-react";
 import { AiReadReceipt, DmReadReceipt } from "./ReadReceipt";
 import {
   Message,
@@ -125,20 +125,10 @@ function MessageItemInner({
           {isOwn && isAiChannel && aiReadStatus && <AiReadReceipt status={aiReadStatus} />}
         </div>
 
-        {/* replied in thread indicator */}
+        {/* replied in thread indicator — matches the mobile MessageBubble replyBar */}
         {msg.parentId && (
-          <div className="flex items-center gap-1.5 px-1 py-0.5 text-[11px] text-[var(--muted-foreground)] border-l-2 border-[var(--accent)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] rounded-r-[var(--radius-sm)] -ml-1 mr-1 mb-1">
-            <GitBranch className="h-3 w-3 shrink-0" />
-            <span className="font-medium">replied in thread</span>
-            {onViewThread && (
-              <button
-                onClick={() => onViewThread(msg.parentId!)}
-                className="underline hover:text-[var(--foreground)] ml-auto"
-                aria-label="View thread"
-              >
-                open
-              </button>
-            )}
+          <div className="border-l-2 border-[var(--accent)] pl-2 py-0.5 mb-1 text-[11px] text-[var(--muted-foreground)]">
+            replied in thread
           </div>
         )}
 
@@ -211,7 +201,7 @@ function MessageItemInner({
           <MessageAction tooltip="Heart" onClick={() => toggleReaction("❤️", groupedReactions.find(([e]) => e === "❤️")?.[1].byMe ?? false)}><Heart className="h-3.5 w-3.5" /></MessageAction>
           <MessageAction tooltip="Laugh" onClick={() => toggleReaction("😂", groupedReactions.find(([e]) => e === "😂")?.[1].byMe ?? false)}><Laugh className="h-3.5 w-3.5" /></MessageAction>
           {onReply && <MessageAction tooltip="Reply" onClick={() => onReply(msg.id)}><CornerUpLeft className="h-3.5 w-3.5" /></MessageAction>}
-          {onViewThread && !msg.parentId && <MessageAction tooltip="View thread" onClick={() => onViewThread(msg.id)}><MessagesSquare className="h-3.5 w-3.5" /></MessageAction>}
+          {onViewThread && <MessageAction tooltip="View thread" onClick={() => onViewThread(msg.id)}><MessagesSquare className="h-3.5 w-3.5" /></MessageAction>}
           {isOwn && (
             <>
               <MessageAction tooltip="Edit" onClick={() => setEditing(true)}><Pencil className="h-3.5 w-3.5" /></MessageAction>
