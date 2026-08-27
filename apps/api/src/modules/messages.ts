@@ -288,13 +288,61 @@ export async function registerMessageRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // thread replies: GET /api/messages/:id/replies
+  // single message (thread parent): GET /api/messages/:id
+  app.get("/api/messages/:id", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const db = (app as any).db;
+    const [msg] = await db.select().from(message).where(eq(message.id, id));
+    if (!msg) return reply.code(404).send({ error: "Not found" });
+    const [ch] = await db.select().from(channel).where(eq(channel.id, msg.channelId));
+    if (!ch) return reply.code(404).send({ error: "Not found" });
+    const [cm] = await db.select().from(channelMember).where(and(eq(channelMember.channelId, msg.channelId), eq(channelMember.userId, user.id)));
+    if (!cm && ch.type !== "public") return reply.code(403).send({ error: "Forbidden" });
+    if (!cm && ch.type === "public") {
+      const [wm] = await db.select().from(workspaceMember).where(and(eq(workspaceMember.workspaceId, ch.workspaceId), eq(workspaceMember.userId, user.id)));
+      if (!wm) return reply.code(403).send({ error: "Forbidden" });
+    }
+    await hydrateMessages(db, [msg]);
+    return msg;
+  });
+
+  // thread replies: GET /api/messages/:id/replies (serialized with sender/attachments/reactions)
   app.get("/api/messages/:id/replies", async (req, reply) => {
     const user = await (app as any).getSessionUser(req);
     if (!user) return reply.code(401).send({ error: "Unauthorized" });
     const { id } = req.params as any;
     const db = (app as any).db;
     const replies = await db.select().from(message).where(eq(message.parentId, id)).orderBy(asc(message.id));
+    await hydrateMessages(db, replies);
     return replies;
   });
+}
+
+/** Attach sender + attachments + reactions to message rows (mirrors the list endpoint). */
+async function hydrateMessages(db: any, rows: any[]) {
+  if (!rows.length) return;
+  const { inArray } = await import("drizzle-orm");
+  const { user: userTable } = await import("@chat/db/schema");
+  const ids = rows.map((r) => r.id);
+  const atts = await db.select().from(attachment).where(inArray(attachment.messageId, ids));
+  const reacts = await db.select().from(reaction).where(inArray(reaction.messageId, ids));
+  const senders = await db.select().from(userTable).where(inArray(userTable.id, rows.map((m: any) => m.senderId)));
+  const attachmentsByMessage = new Map<string, any[]>();
+  const reactionsByMessage = new Map<string, any[]>();
+  for (const a of atts) {
+    if (!attachmentsByMessage.has(a.messageId)) attachmentsByMessage.set(a.messageId, []);
+    attachmentsByMessage.get(a.messageId)!.push(a);
+  }
+  for (const r of reacts) {
+    if (!reactionsByMessage.has(r.messageId)) reactionsByMessage.set(r.messageId, []);
+    reactionsByMessage.get(r.messageId)!.push(r);
+  }
+  const senderMap = new Map(senders.map((u: any) => [u.id, u]));
+  for (const m of rows) {
+    m.sender = senderMap.get(m.senderId) ?? null;
+    m.attachments = attachmentsByMessage.get(m.id) ?? [];
+    m.reactions = reactionsByMessage.get(m.id) ?? [];
+  }
 }
