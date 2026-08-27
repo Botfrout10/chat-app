@@ -12,7 +12,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/api/client";
 import { MessageBubble } from "@/components/chat/MessageBubble";
@@ -45,6 +45,7 @@ export default function ThreadView() {
     name?: string;
   }>();
   const threadId = params.id ?? "";
+  const insets = useSafeAreaInsets();
 
   // parent is parsed once; params never change for a mounted route
   const [parent] = useState<Message | null>(() => parseParent(params.parent));
@@ -121,7 +122,7 @@ export default function ThreadView() {
   const rows = dedupe([...(repliesQuery.data ?? [])]);
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: t.background }]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: t.background }]} edges={["top", "bottom"]}>
       <View style={[styles.header, { borderBottomColor: t.border }]}>
         <Pressable accessibilityRole="button" hitSlop={10} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={24} color={t.foreground} />
@@ -138,7 +139,8 @@ export default function ThreadView() {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
       >
         {repliesQuery.isPending && !params.parent ? (
           <ActivityIndicator style={{ marginTop: 24 }} color={t.primary} />

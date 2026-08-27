@@ -359,12 +359,15 @@ export default function ChannelView() {
           pendingAttachments={pending.map((p) => p.filename)}
           onRemoveAttachment={(i) => setPending((p) => p.filter((_, j) => j !== i))}
           onSend={async (content) => {
+            const isReply = composerState.kind === "reply";
+            const parentId = isReply ? composerState.parentId : undefined;
             await sendMutation.mutateAsync({
               content,
-              parentId: composerState.kind === "reply" ? composerState.parentId : undefined,
+              parentId,
               attachments: pending,
             });
-            if (!sendMutation.isError) setPending([]);
+            setPending([]);
+            if (isReply) setComposerState({ kind: "idle" });
           }}
           onEditSave={(id, content) => editMutation.mutateAsync({ id, content })}
         />
@@ -390,6 +393,7 @@ export default function ChannelView() {
                 if (!sheetFor) return;
                 const mine = sheetFor.reactions.some((r) => r.userId === me?.id && r.emoji === emoji);
                 react(sheetFor.id, emoji, mine);
+                setSheetFor(null);
               }}
             />
           ) : undefined

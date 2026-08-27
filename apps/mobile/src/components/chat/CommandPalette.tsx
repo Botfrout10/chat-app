@@ -312,8 +312,8 @@ export function CommandPalette() {
     <Modal visible={paletteOpen} transparent animationType="fade" onRequestClose={close} statusBarTranslucent>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={close} />
-        <SafeAreaView style={styles.safe} edges={["top"]}>
-          <View style={[styles.card, { backgroundColor: t.card, borderColor: t.border }]}>
+        <SafeAreaView style={styles.safe} edges={["top"]} pointerEvents="box-none">
+          <View style={[styles.card, { backgroundColor: t.card, borderColor: t.border }]} pointerEvents="auto">
             {/* handle */}
             <View style={[styles.handle, { backgroundColor: t.border }]} />
             <View style={[styles.searchRow, { borderColor: t.inputBorder, backgroundColor: t.input }]}>

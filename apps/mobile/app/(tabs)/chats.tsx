@@ -109,6 +109,9 @@ export default function Chats() {
   const channelList = channels.filter((c) => !isDmLike(c));
   const dmList = channels.filter(isDmLike);
 
+  const [collapsed, setCollapsed] = useState({ channels: false, models: false, dms: false });
+  const toggle = (k: keyof typeof collapsed) => setCollapsed((s) => ({ ...s, [k]: !s[k] }));
+
   // AI model connections
   const llmQuery = useQuery({
     queryKey: ["llm-connections"],
@@ -221,8 +224,10 @@ export default function Chats() {
               title={`Channels${channelList.length ? ` — ${channelList.length}` : ""}`}
               actionLabel="New"
               onAction={() => setModal("channel")}
+              collapsed={collapsed.channels}
+              onToggle={() => toggle("channels")}
             >
-              {channelList.map((c) => (
+              {!collapsed.channels && channelList.map((c) => (
                 <Row
                   key={c.id}
                   channel={c}
@@ -231,11 +236,11 @@ export default function Chats() {
                   onPress={() => openChannel(c)}
                 />
               ))}
-              {!channelList.length && !channelsQuery.isPending && <Empty text="No channels yet" />}
+              {!collapsed.channels && !channelList.length && !channelsQuery.isPending && <Empty text="No channels yet" />}
             </Section>
           ) : item.kind === "models" ? (
-            <Section title="AI models">
-              {(llmQuery.data ?? []).map((conn) => (
+            <Section title="AI models" collapsed={collapsed.models} onToggle={() => toggle("models")}>
+              {!collapsed.models && (llmQuery.data ?? []).map((conn) => (
                 <Pressable
                   key={conn.id}
                   disabled={llmOpening === conn.id}
@@ -264,10 +269,10 @@ export default function Chats() {
                   )}
                 </Pressable>
               ))}
-              {!llmQuery.isPending && !(llmQuery.data ?? []).length && (
+              {!collapsed.models && !llmQuery.isPending && !(llmQuery.data ?? []).length && (
                 <Empty text="No models connected — connect one on web" />
               )}
-              {!!llmError && (
+              {!collapsed.models && !!llmError && (
                 <Text style={{ color: t.destructive, fontSize: 12, paddingHorizontal: 16 }}>{llmError}</Text>
               )}
             </Section>
@@ -276,8 +281,10 @@ export default function Chats() {
               title={`Direct messages${dmList.length ? ` — ${dmList.length}` : ""}`}
               actionLabel="New"
               onAction={() => setModal("dm")}
+              collapsed={collapsed.dms}
+              onToggle={() => toggle("dms")}
             >
-              {dmList.map((c) => (
+              {!collapsed.dms && dmList.map((c) => (
                 <Row
                   key={c.id}
                   channel={c}
@@ -286,7 +293,7 @@ export default function Chats() {
                   onPress={() => openChannel(c)}
                 />
               ))}
-              {!dmList.length && !channelsQuery.isPending && (
+              {!collapsed.dms && !dmList.length && !channelsQuery.isPending && (
                 <Empty text="No DMs yet — start one from a member" />
               )}
             </Section>
@@ -596,25 +603,32 @@ function Section({
   title,
   actionLabel,
   onAction,
+  collapsed,
+  onToggle,
   children,
 }: {
   title: string;
   actionLabel?: string;
   onAction?: () => void;
+  collapsed?: boolean;
+  onToggle?: () => void;
   children: React.ReactNode;
 }) {
   const t = useTheme();
   return (
     <View style={{ marginTop: 16 }}>
-      <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: t.mutedForeground }]}>{title.toUpperCase()}</Text>
-        {actionLabel && (
+      <Pressable onPress={onToggle} disabled={!onToggle} style={styles.sectionHeader}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
+          {onToggle && <Ionicons name={collapsed ? "chevron-forward" : "chevron-down"} size={14} color={t.mutedForeground} />}
+          <Text style={[styles.sectionTitle, { color: t.mutedForeground }]}>{title.toUpperCase()}</Text>
+        </View>
+        {actionLabel && !collapsed && (
           <Pressable onPress={onAction} hitSlop={8}>
             <Text style={{ color: t.primary, fontWeight: "600", fontSize: 13 }}>{actionLabel}</Text>
           </Pressable>
         )}
-      </View>
-      {children}
+      </Pressable>
+      {!collapsed && children}
     </View>
   );
 }

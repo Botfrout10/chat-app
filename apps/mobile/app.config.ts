@@ -14,6 +14,7 @@ export default {
       package: "dev.pulse.chat",
       // keyboard must not cover inputs: resize the window instead of panning
       softwareKeyboardLayoutMode: "resize",
+      usesCleartextTraffic: true,
     },
     web: {
       bundler: "metro",
