@@ -70,7 +70,7 @@ function PromptInputAttachmentsDisplay() {
 
 /** Preset-composed composer: attachments header, textarea, footer w/ attach menu + submit. */
 function ChatComposer({
-  value, onValueChange, onKeyDown, onSubmit, replyTo, onCancelReply, busy, contextInfo,
+  value, onValueChange, onKeyDown, onSubmit, replyTo, onCancelReply, busy,
 }: {
   value: string;
   onValueChange: (v: string) => void;
@@ -79,7 +79,6 @@ function ChatComposer({
   replyTo: string | null;
   onCancelReply: () => void;
   busy: boolean;
-  contextInfo?: { usedTokens: number; maxTokens: number; modelId?: string } | null;
 }) {
   return (
     <PromptInput onSubmit={onSubmit} multiple globalDrop>
@@ -110,30 +109,6 @@ function ChatComposer({
               <PromptInputActionAddAttachments />
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
-          {contextInfo && (
-            <Context
-              usedTokens={contextInfo.usedTokens}
-              maxTokens={contextInfo.maxTokens}
-              modelId={contextInfo.modelId}
-              usage={{
-                inputTokens: contextInfo.usedTokens,
-                inputTokenDetails: { noCacheTokens: contextInfo.usedTokens, cacheReadTokens: 0, cacheWriteTokens: 0 },
-                outputTokens: 0,
-                outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
-                totalTokens: contextInfo.usedTokens,
-              }}
-            >
-              <ContextTrigger />
-              <ContextContent align="start">
-                <ContextContentHeader />
-                <ContextContentBody>
-                  <ContextInputUsage />
-                  <ContextOutputUsage />
-                </ContextContentBody>
-                <ContextContentFooter />
-              </ContextContent>
-            </Context>
-          )}
         </PromptInputTools>
         <PromptInputSubmit disabled={busy} title="Send" />
       </PromptInputFooter>
@@ -569,7 +544,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
           busy={uploading}
-          contextInfo={isAiChannel ? { usedTokens: estContextTokens, maxTokens, modelId } : null}
         />
         <div className="mt-1 text-xs text-[var(--muted-foreground)] hidden sm:block">Markdown • @mention • images preview inline</div>
       </div>
