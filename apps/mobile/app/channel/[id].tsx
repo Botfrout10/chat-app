@@ -79,6 +79,20 @@ export default function ChannelView() {
     return m;
   }, [channelMembersQuery.data, me?.id]);
 
+  // AI channel detection (for read receipts): bot user in members or llm dm
+  const botIdToConn = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of (llmQuery.data as any[]) ?? []) if (c.botUserId) m.set(c.botUserId, c.id);
+    return m;
+  }, [llmQuery.data]);
+  const llmConnectionIdForChannel = useMemo(() => {
+    const members = (channelMembersQuery.data as any[]) ?? [];
+    for (const mem of members) if (botIdToConn.has(mem.id)) return botIdToConn.get(mem.id)!;
+    return null;
+  }, [channelMembersQuery.data, botIdToConn]);
+  const isAiChannel = !!llmConnectionIdForChannel;
+  const isDmLike = params.type === "dm" || params.type === "group";
+
   const [composerState, setComposerState] = useState<ComposerState>({ kind: "idle" });
   const [sheetFor, setSheetFor] = useState<Message | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -180,23 +194,21 @@ export default function ChannelView() {
     if (!sheetFor) return [];
     const own = sheetFor.senderId === me?.id;
     const actions: Action[] = [];
-    if (!sheetFor.parentId) {
-      actions.push({
-        key: "thread",
-        label: "View thread",
-        onPress: () =>
-          router.push({
-            pathname: "/thread/[id]",
-            params: {
-              id: sheetFor.id,
-              channelId,
-              workspaceId: activeWorkspaceId,
-              name: params.name ?? "",
-              parent: JSON.stringify(sheetFor),
-            },
-          }),
-      });
-    }
+    actions.push({
+      key: "thread",
+      label: "View thread",
+      onPress: () =>
+        router.push({
+          pathname: "/thread/[id]",
+          params: {
+            id: sheetFor.id,
+            channelId,
+            workspaceId: activeWorkspaceId,
+            name: params.name ?? "",
+            parent: JSON.stringify(sheetFor),
+          },
+        }),
+    });
     actions.push(
       {
         key: "reply",
@@ -310,6 +322,9 @@ export default function ChannelView() {
                   firstOfGroup={firstOfGroup}
                   memberTokens={memberTokens}
                   readBy={readByMap.get(item.id)}
+                  hideReadReceipt={!isDmLike && !isAiChannel}
+                  showChecks={isDmLike || isAiChannel}
+                  onToggleReaction={(emoji, mine) => react(item.id, emoji, mine)}
                   onLongPress={setSheetFor}
                 />
               );
@@ -385,6 +400,8 @@ export default function ChannelView() {
           uploading={uploading}
           pendingAttachments={pending.map((p) => p.filename)}
           onRemoveAttachment={(i) => setPending((p) => p.filter((_, j) => j !== i))}
+          members={(membersQuery.data as any[]) ?? []}
+          llmConnections={(llmQuery.data as any[]) ?? []}
           onSend={async (content) => {
             const isReply = composerState.kind === "reply";
             const parentId = isReply ? composerState.parentId : undefined;

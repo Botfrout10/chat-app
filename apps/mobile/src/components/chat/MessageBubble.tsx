@@ -22,6 +22,9 @@ export function MessageBubble({
   onLongPress,
   memberTokens,
   readBy,
+  onToggleReaction,
+  hideReadReceipt,
+  showChecks,
 }: {
   message: Message;
   me: User | null;
@@ -29,6 +32,9 @@ export function MessageBubble({
   onLongPress?: (m: Message) => void;
   memberTokens?: Set<string>;
   readBy?: { id: string; name: string }[];
+  onToggleReaction?: (emoji: string, mine: boolean) => void;
+  hideReadReceipt?: boolean;
+  showChecks?: boolean;
 }) {
   const t = useTheme();
   const own = me?.id === message.senderId;
@@ -93,30 +99,38 @@ export function MessageBubble({
         {!!message.reactions?.length && (
           <View style={styles.reactions}>
             {groupReactions(message.reactions, me?.id).map((r) => (
-              <View
+              <Pressable
                 key={r.emoji}
-                style={[
+                onPress={() => onToggleReaction?.(r.emoji, r.mine)}
+                style={({ pressed }) => [
                   styles.chip,
                   {
                     backgroundColor: own ? t.primaryHover : t.accent50,
                     borderColor: r.mine ? t.accent500 : "transparent",
+                    opacity: pressed ? 0.7 : 1,
                   },
                 ]}
               >
                 <Text style={{ fontSize: 12 }}>{r.emoji}</Text>
-                <Text style={{ fontSize: 11, color: own ? t.accent50 : t.mutedForeground }}>
-                  {r.count}
-                </Text>
-              </View>
+                <Text style={{ fontSize: 11, color: own ? t.accent50 : t.mutedForeground }}>{r.count}</Text>
+              </Pressable>
             ))}
           </View>
         )}
 
-        <Text style={[styles.time, { color: own ? t.accent100 : t.mutedForeground }]}>
-          {timeOf(message.createdAt)}
-        </Text>
+        <View style={styles.timeRow}>
+          <Text style={[styles.time, { color: own ? t.accent100 : t.mutedForeground }]}>{timeOf(message.createdAt)}</Text>
+          {own && showChecks && (
+            <Ionicons
+              name={readBy && readBy.length > 0 ? "checkmark-done" : "checkmark"}
+              size={13}
+              color={readBy && readBy.length > 0 ? t.primary : t.accent100}
+              style={{ marginLeft: 4 }}
+            />
+          )}
+        </View>
 
-        {own && readBy && readBy.length > 0 && (
+        {own && !hideReadReceipt && readBy && readBy.length > 0 && !showChecks && (
           <View style={styles.readBy}>
             {readBy.slice(0, 4).map((r) => (
               <View key={r.id} style={[styles.readByPill, { backgroundColor: t.muted }]}>
@@ -190,6 +204,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   time: { fontSize: 10, alignSelf: "flex-end", marginTop: 2 },
+  timeRow: { flexDirection: "row", alignItems: "center", alignSelf: "flex-end", marginTop: 2 },
   readBy: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4, justifyContent: "flex-end" },
   readByPill: {
     width: 18,
