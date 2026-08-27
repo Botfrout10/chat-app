@@ -421,22 +421,86 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     return Math.ceil(chars / 4) + allMessages.length * 4;
   }, [allMessages]);
 
+  // robust AI channel detection: backend now sets channel.llmConnectionId, but
+  // fall back to matching bot user ids in channel members/dmPeer so the
+  // context indicator survives races or stale channel lists
+  const botIdToConn = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of (llmConnections as any[]) ?? []) if (c.botUserId) m.set(c.botUserId, c.id);
+    return m;
+  }, [llmConnections]);
+  const llmConnectionIdForChannel = useMemo(() => {
+    if ((channel as any)?.llmConnectionId) return (channel as any).llmConnectionId as string;
+    const peerId = (channel as any)?.dmPeer?.id as string | undefined;
+    if (peerId && botIdToConn.has(peerId)) return botIdToConn.get(peerId)!;
+    const members = (channelMembers as any[]) ?? [];
+    for (const mem of members) if (botIdToConn.has(mem.id)) return botIdToConn.get(mem.id)!;
+    return null;
+  }, [channel, channelMembers, botIdToConn]);
+  const maxTokens = useMemo(() => {
+    const conn = (llmConnections as any[])?.find((c: any) => c.id === llmConnectionIdForChannel);
+    const cap: any = conn?.capabilities;
+    const fromCap = cap?.context_length ?? cap?.contextLength ?? cap?.maxTokens ?? cap?.n_ctx ?? null;
+    const n = typeof fromCap === "number" ? fromCap : Number(fromCap);
+    return Number.isFinite(n) && n > 0 ? n : 8192;
+  }, [llmConnections, llmConnectionIdForChannel]);
+  const isAiChannel = !!llmConnectionIdForChannel;
+
   if (isLoading) return <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted-foreground)]">Loading messages…</div>;
 
   const isDm = channel?.type === "dm";
   const title = isDm ? `${channel?.dmPeer?.name ?? "direct message"}` : `${channel?.name ?? channelId.slice(0, 8)}`;
-  // model-DM replies come from the bot even though stored rows lack llmConnectionId
-  const isAiChannel = !!channel?.llmConnectionId;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--background)]">
       <div className="h-14 border-b border-[var(--border)] flex items-center px-4 justify-between shrink-0 bg-[var(--card)]">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <span className="h-6 w-6 rounded-lg bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)]">{isDm ? <AtSign className="h-3.5 w-3.5" /> : <Hash className="h-3.5 w-3.5" />}</span>
-          <span className="text-sm font-semibold text-[var(--foreground)]">{title}</span>
-          <span className="text-xs text-[var(--muted-foreground)]">{allMessages.length} messages</span>
+          <span className="text-sm font-semibold text-[var(--foreground)] truncate">{title}</span>
+          <span className="text-xs text-[var(--muted-foreground)] shrink-0">{allMessages.length} messages</span>
+          {isAiChannel && (
+            <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)]" title="Estimated context usage">
+              <Sparkles className="h-3 w-3 text-[var(--primary)]" />
+              {Math.round((estContextTokens / maxTokens) * 100)}% context
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
+          {isAiChannel && (
+            <Context
+              usedTokens={estContextTokens}
+              maxTokens={maxTokens}
+              usage={{
+                inputTokens: estContextTokens,
+                inputTokenDetails: { noCacheTokens: estContextTokens, cacheReadTokens: 0, cacheWriteTokens: 0 },
+                outputTokens: 0,
+                outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+                totalTokens: estContextTokens,
+              }}
+            >
+              <ContextTrigger>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  title="AI context usage"
+                  className="rounded-full border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)]/40 h-7 px-2.5 gap-1.5"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span className="text-xs font-medium">Context</span>
+                </Button>
+              </ContextTrigger>
+              <ContextContent align="end">
+                <ContextContentHeader />
+                <ContextContentBody>
+                  <ContextInputUsage />
+                </ContextContentBody>
+                <ContextContentFooter className="px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
+                  Context estimate (~4 chars/token). Actual window depends on the provider model.
+                </ContextContentFooter>
+              </ContextContent>
+            </Context>
+          )}
           {hasNextPage && (
             <Button variant="ghost" size="sm" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
               {isFetchingNextPage ? "Loading…" : "Load older"}
@@ -527,7 +591,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
           busy={uploading}
-          contextInfo={isAiChannel ? { usedTokens: estContextTokens, maxTokens: 8192 } : null}
+          contextInfo={isAiChannel ? { usedTokens: estContextTokens, maxTokens } : null}
         />
         <div className="mt-1 text-xs text-[var(--muted-foreground)] hidden sm:block">Markdown • @mention • images preview inline</div>
       </div>

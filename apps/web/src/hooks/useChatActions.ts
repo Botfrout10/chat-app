@@ -48,7 +48,19 @@ export function useOpenLlmDm() {
       if (!activeWorkspaceId) return;
       try {
         const ch: any = await api.createLlmDm(connectionId, activeWorkspaceId);
-        await refresh();
+        const chs: any[] = await refresh();
+        // defensive patch: backend now enriches llmConnectionId, but if refresh
+        // raced or missed it, patch the entry so the context indicator appears
+        // without requiring a second fetch
+        if (ch?.llmConnectionId) {
+          const patched = chs.map((c: any) =>
+            c.id === ch.id ? { ...c, llmConnectionId: c.llmConnectionId ?? ch.llmConnectionId, modelLabel: c.modelLabel ?? ch.modelLabel } : c
+          );
+          const found = patched.find((c: any) => c.id === ch.id);
+          if (found && !chs.find((c: any) => c.id === ch.id)?.llmConnectionId) {
+            useChatStore.getState().setChannels(patched);
+          }
+        }
         setActiveChannel(ch.id);
       } catch (e: any) {
         toast.error((e.message ?? "Failed to open model chat").slice(0, 160));

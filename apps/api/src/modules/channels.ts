@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { ulid } from "ulid";
-import { and, eq } from "drizzle-orm";
-import { channel, channelMember, workspaceMember } from "@chat/db/schema";
+import { and, eq, inArray } from "drizzle-orm";
+import { channel, channelMember, llmConnection, workspaceMember } from "@chat/db/schema";
 import { createChannelSchema } from "@chat/shared/schemas";
 
 export async function registerChannelRoutes(app: FastifyInstance) {
@@ -37,6 +37,51 @@ export async function registerChannelRoutes(app: FastifyInstance) {
         .where(eq(channelMember.channelId, c.id));
       const peers = rows.map((r: any) => ({ id: r.u.id, name: r.u.name })).filter((p: any) => p.id !== user.id);
       (c as any).dmPeer = c.type === "dm" ? peers[0] ?? null : peers;
+    }
+
+    // attach llmConnectionId for AI model DM channels (personal bots)
+    // so the context indicator can stay visible after refresh/reload
+    try {
+      const conns = await db.select().from(llmConnection).where(eq(llmConnection.ownerId, user.id));
+      const botToConn = new Map<string, string>();
+      const connMeta = new Map<string, { label: string; modelId: string; capabilities: any }>();
+      for (const conn of conns as any[]) {
+        if (conn.botUserId) {
+          botToConn.set(conn.botUserId, conn.id);
+          connMeta.set(conn.id, { label: conn.label, modelId: conn.modelId, capabilities: conn.capabilities });
+        }
+      }
+      if (botToConn.size && visible.length) {
+        const visibleIds = visible.map((c: any) => c.id);
+        const botIds = [...botToConn.keys()];
+        const botMembers = await db
+          .select({ channelId: channelMember.channelId, userId: channelMember.userId })
+          .from(channelMember)
+          .where(and(inArray(channelMember.channelId, visibleIds as string[]), inArray(channelMember.userId, botIds as string[])));
+        const chanToConn = new Map<string, string>();
+        for (const r of botMembers as any[]) {
+          const cid = botToConn.get(r.userId);
+          if (cid) chanToConn.set(r.channelId, cid);
+        }
+        for (const c of visible as any[]) {
+          const connId = chanToConn.get(c.id) ?? null;
+          c.llmConnectionId = connId;
+          if (connId) {
+            const meta = connMeta.get(connId);
+            if (meta) {
+              c.modelLabel = meta.label;
+              c.modelId = meta.modelId;
+            }
+          } else {
+            c.llmConnectionId = null;
+          }
+        }
+      } else {
+        for (const c of visible as any[]) c.llmConnectionId = null;
+      }
+    } catch {
+      // don't fail channel list on llm lookup
+      for (const c of visible as any[]) if (!("llmConnectionId" in c)) (c as any).llmConnectionId = null;
     }
     return visible;
   });
