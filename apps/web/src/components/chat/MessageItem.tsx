@@ -125,13 +125,6 @@ function MessageItemInner({
           {isOwn && isAiChannel && aiReadStatus && <AiReadReceipt status={aiReadStatus} />}
         </div>
 
-        {/* replied in thread indicator — matches the mobile MessageBubble replyBar (constrained to content width) */}
-        {msg.parentId && (
-          <div className={`w-fit border-l-2 border-[var(--accent)] pl-2 py-0.5 mb-1 text-[11px] text-[var(--muted-foreground)] ${isOwn ? "self-end" : ""}`}>
-            replied in thread
-          </div>
-        )}
-
         {/* reasoning collapsible stays outside the bubble, full width of its side */}
         {msg.reasoning ? (
           <Reasoning className={`${isOwn ? "self-end" : ""} w-fit max-w-full`} defaultOpen={false}>
@@ -145,6 +138,18 @@ function MessageItemInner({
         ) : null}
 
         <MessageContent className={isOwn ? "text-[13px]" : "text-sm"}>
+          {/* replied in thread indicator — first child inside the bubble, matching mobile MessageBubble.replyBar */}
+          {msg.parentId && (
+            <div
+              className={`border-l-2 pl-2 py-0.5 mb-1 text-[11px] ${
+                isOwn
+                  ? "border-[var(--accent-300)] text-[var(--primary-foreground)]/70"
+                  : "border-[var(--accent)] text-[var(--muted-foreground)]"
+              }`}
+            >
+              replied in thread
+            </div>
+          )}
           {editing ? (
             <div className="flex gap-2 py-1">
               <input value={editContent} onChange={(e) => setEditContent(e.target.value)} className="flex-1 rounded-[var(--radius-sm)] border border-[var(--input-border)] bg-[var(--input)] text-[var(--foreground)] px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]" />
