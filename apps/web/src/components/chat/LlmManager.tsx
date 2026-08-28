@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BrainCircuit, ChevronDown, ChevronRight, Plug, RefreshCw } from "lucide-react";
+import { BrainCircuit, ChevronDown, ChevronRight, Plug, RefreshCw, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useUiStore } from "@/store/ui";
@@ -60,11 +60,14 @@ export function LlmManager() {
   const qc = useQueryClient();
   const [label, setLabel] = useState("");
   const [baseUrl, setBaseUrl] = useState("http://localhost:1234");
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
   const [modelId, setModelId] = useState("");
   const [busy, setBusy] = useState(false);
   const [openStatusId, setOpenStatusId] = useState<string | null>(null);
   const [removeId, setRemoveId] = useState<string | null>(null);
   const [debouncedBaseUrl, setDebouncedBaseUrl] = useState(baseUrl);
+  const [debouncedApiKey, setDebouncedApiKey] = useState(apiKey);
 
   const { data: connections } = useQuery({
     queryKey: ["llm-connections"],
@@ -77,11 +80,15 @@ export function LlmManager() {
     enabled: open && !!openStatusId,
   });
 
-  // debounce URL for preview fetch (500ms)
+  // debounce URL + key for preview fetch (500ms)
   useEffect(() => {
     const t = setTimeout(() => setDebouncedBaseUrl(baseUrl.trim()), 500);
     return () => clearTimeout(t);
   }, [baseUrl]);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedApiKey(apiKey.trim()), 500);
+    return () => clearTimeout(t);
+  }, [apiKey]);
 
   const canPreview = open && !!debouncedBaseUrl && isValidUrl(debouncedBaseUrl);
   const {
@@ -90,14 +97,12 @@ export function LlmManager() {
     error: previewErrorRaw,
     refetch: refetchPreview,
   } = useQuery({
-    queryKey: ["llm-preview", debouncedBaseUrl],
+    queryKey: ["llm-preview", debouncedBaseUrl, debouncedApiKey ? "key" : "nokey"],
     queryFn: async () => {
-      // api.llmPreview throws on 400 with error text; we want structured data
       try {
-        const res: any = await api.llmPreview(debouncedBaseUrl);
+        const res: any = await api.llmPreview(debouncedBaseUrl, debouncedApiKey || undefined);
         return res as { providerReachable: boolean; providerModels: string[] | null; baseUrl: string };
       } catch (e: any) {
-        // extract error message from thrown error text
         let msg = e.message ?? "Preview failed";
         try {
           const parsed = JSON.parse(msg);
@@ -129,7 +134,7 @@ export function LlmManager() {
   // when baseUrl changes to a new value, clear stale model selection
   useEffect(() => {
     setModelId("");
-  }, [debouncedBaseUrl]);
+  }, [debouncedBaseUrl, debouncedApiKey]);
 
   useEffect(() => {
     if (!open) setOpenStatusId(null);
@@ -140,9 +145,15 @@ export function LlmManager() {
     if (!label.trim() || !baseUrl.trim() || !modelId.trim()) return;
     setBusy(true);
     try {
-      await api.createLlmConnection({ label: label.trim(), baseUrl: baseUrl.trim(), modelId: modelId.trim() });
+      await api.createLlmConnection({
+        label: label.trim(),
+        baseUrl: baseUrl.trim(),
+        modelId: modelId.trim(),
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+      });
       setLabel("");
       setModelId("");
+      setApiKey("");
       qc.invalidateQueries({ queryKey: ["llm-connections"] });
       toast.success(`Connected ${label.trim()}`);
     } catch (e: any) {
@@ -281,6 +292,26 @@ export function LlmManager() {
               <p className="text-[11px] text-[var(--muted-foreground)]">
                 OpenAI-compatible base URL. We fetch <code>{"{base}/models"}</code> to list models.
               </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="llm-apiKey" className="text-xs text-[var(--muted-foreground)]">
+                API key <span className="font-normal opacity-60">(required for cloud providers, leave blank for local)</span>
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="llm-apiKey"
+                  type={showKey ? "text" : "password"}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="sk-… (stored encrypted)"
+                  className="font-mono flex-1"
+                  autoComplete="off"
+                />
+                <Button type="button" variant="outline" size="icon" onClick={() => setShowKey((v) => !v)} title={showKey ? "Hide key" : "Show key"}>
+                  {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
             </div>
 
             {/* Model selectable list based on URL */}

@@ -441,7 +441,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     return (conn?.botUserId as string | undefined) ?? (channel as any)?.dmPeer?.id ?? null;
   }, [isAiChannel, llmConnections, llmConnectionIdForChannel, channel]);
 
-  // --- AI model live status: auto-checked on open (not just manual Re-check) ---
+  // --- AI model live status: fetched once on open, plus socket errors & send-time checks ---
   const [pendingQueue, setPendingQueue] = useState<Array<{ id: string; text: string; files: FileUIPart[] }>>([]);
   const {
     data: llmStatusDetail,
@@ -454,10 +454,10 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     queryFn: () => api.llmConnectionStatus(llmConnectionIdForChannel!),
     enabled: !!isAiChannel && !!llmConnectionIdForChannel,
     retry: false,
-    staleTime: 10_000,
-    refetchInterval: isAiChannel && !!llmConnectionIdForChannel ? 15_000 : false,
-    refetchIntervalInBackground: true,
-    refetchOnWindowFocus: true,
+    staleTime: Infinity,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
   });
   const llmStatusLoading = llmStatusInitialLoading || llmStatusFetching;
   const statusConn: any = (llmStatusDetail as any)?.connection ?? null;
@@ -476,27 +476,42 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   const isModelOnline = !!isAiChannel && !llmStatusLoading && !isModelOffline && providerReachable === true;
   const isModelChecking = !!isAiChannel && llmStatusLoading;
 
-  // keep status fresh while viewing an AI channel — ensures the first message after
-  // a drop is queued instead of being sent into a failed generation, and lets
-  // queued messages flush promptly when the provider returns
+  // "Model online" fades after 3s
+  const [showOnlineBanner, setShowOnlineBanner] = useState(false);
   useEffect(() => {
-    if (!isAiChannel || !llmConnectionIdForChannel) return;
-    const id = setInterval(() => { refetchLlmStatus(); }, 15_000);
-    return () => clearInterval(id);
-  }, [isAiChannel, llmConnectionIdForChannel, refetchLlmStatus]);
+    if (!isModelOnline) {
+      setShowOnlineBanner(false);
+      return;
+    }
+    setShowOnlineBanner(true);
+    const t = setTimeout(() => setShowOnlineBanner(false), 3000);
+    return () => clearTimeout(t);
+  }, [isModelOnline, llmConnectionIdForChannel]);
 
-  // socket llm:error for this channel/connection → mark offline immediately
+  // socket llm:error for this channel/connection → mark offline immediately + toast
   useEffect(() => {
     if (!isAiChannel || !llmConnectionIdForChannel) return;
     const s = getSocket();
     const onError = (p: any) => {
       if (p.channelId === channelId || p.connectionId === llmConnectionIdForChannel) {
+        const msg = String(p.error ?? "").slice(0, 300);
+        if (msg) toast.error(msg.includes("401") || msg.toLowerCase().includes("api key") ? `Model failed: ${msg}` : `Model error: ${msg}`);
+        // patch cache to error so dot turns red without extra fetch
+        qc.setQueryData(["llm-status", llmConnectionIdForChannel], (prev: any) => {
+          if (!prev) return prev;
+          return { ...prev, providerReachable: false, connection: { ...prev.connection, status: "error", lastError: msg || prev.connection?.lastError } };
+        });
+        qc.setQueryData(["llm-connections"], (prev: any) => {
+          if (!Array.isArray(prev)) return prev;
+          return prev.map((c: any) => c.id === llmConnectionIdForChannel ? { ...c, status: "error", lastError: msg || c.lastError } : c);
+        });
+        // refresh in background to confirm provider state if needed, but no polling loop
         refetchLlmStatus();
       }
     };
     s.on("llm:error", onError);
     return () => { s.off("llm:error", onError); };
-  }, [isAiChannel, llmConnectionIdForChannel, channelId, refetchLlmStatus]);
+  }, [isAiChannel, llmConnectionIdForChannel, channelId, qc, refetchLlmStatus]);
 
   // keep sidebar dot fresh when live status diverges from cached connections
   useEffect(() => {
@@ -705,16 +720,16 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       </div>
 
       {/* AI model reachability banner — auto-checked on chat open */}
-      {isAiChannel && (
+      {isAiChannel && (isModelChecking || isModelOffline || (isModelOnline && showOnlineBanner)) && (
         <div
+          role="status"
+          aria-live="polite"
           className={
             isModelChecking
               ? "flex items-center gap-2 px-4 py-2.5 text-xs border-b bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200"
               : isModelOffline
                 ? "flex items-center gap-2 px-4 py-2.5 text-xs border-b bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900 text-red-800 dark:text-red-200"
-                : isModelOnline
-                  ? "flex items-center gap-2 px-4 py-2.5 text-xs border-b bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-200"
-                  : "hidden"
+                : "flex items-center gap-2 px-4 py-2.5 text-xs border-b bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-200 transition-opacity duration-500"
           }
         >
           {isModelChecking ? (
@@ -742,7 +757,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
                 <RefreshCw className={`h-3 w-3 ${llmStatusFetching ? "animate-spin" : ""}`} /> Re-check
               </Button>
             </>
-          ) : isModelOnline ? (
+          ) : (
             <>
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               <span>
@@ -750,7 +765,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
               </span>
               <span className="ml-auto h-2 w-2 rounded-full bg-emerald-500 shrink-0" title="Reachable" />
             </>
-          ) : null}
+          )}
           {!isModelChecking && llmStatusError && isModelOffline && (
             <span className="hidden" aria-hidden>{llmStatusError}</span>
           )}

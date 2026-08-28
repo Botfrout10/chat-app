@@ -9,6 +9,7 @@ import {
   message,
   user as userTable,
 } from "@chat/db/schema";
+import { decryptApiKey } from "./crypto.js";
 
 const CONTEXT_MESSAGES = 20;
 const GENERATION_TIMEOUT_MS = 120_000;
@@ -55,9 +56,12 @@ async function* streamChatCompletion(
   messages: ChatMessage[],
   signal: AbortSignal,
 ): AsyncGenerator<StreamDelta> {
+  const apiKey = decryptApiKey((conn as any).apiKeyEncrypted);
+  const headers: Record<string, string> = { "content-type": "application/json", accept: "text/event-stream" };
+  if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
   const res = await fetch(`${conn.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    headers,
     body: JSON.stringify({ model: conn.modelId, messages, stream: true }),
     signal,
   });

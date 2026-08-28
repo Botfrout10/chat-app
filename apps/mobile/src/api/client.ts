@@ -216,10 +216,19 @@ export const api = {
 
   // AI model connections
   llmConnections: () => req<LlmConnection[]>("/api/llm/connections"),
-  createLlmConnection: (data: { label: string; baseUrl: string; modelId: string; mentionName?: string }) =>
+  createLlmConnection: (data: { label: string; baseUrl: string; modelId: string; mentionName?: string; apiKey?: string }) =>
     req<LlmConnection>("/api/llm/connections", { method: "POST", body: JSON.stringify(data) }),
   deleteLlmConnection: (id: string) =>
     req<{ ok: boolean }>(`/api/llm/connections/${id}`, { method: "DELETE" }),
+  llmConnectionStatus: (id: string) =>
+    req<{ connection: LlmConnection; providerReachable: boolean; providerModels: string[] | null }>(
+      `/api/llm/connections/${id}/status`,
+    ),
+  llmPreview: (baseUrl: string, apiKey?: string) =>
+    req<{ providerReachable: boolean; providerModels: string[] | null; baseUrl: string }>("/api/llm/preview", {
+      method: "POST",
+      body: JSON.stringify({ baseUrl, ...(apiKey ? { apiKey } : {}) }),
+    }),
   createLlmDm: (connectionId: string, workspaceId: string) =>
     req<Channel & { created: boolean }>(`/api/llm/connections/${connectionId}/dm`, {
       method: "POST",

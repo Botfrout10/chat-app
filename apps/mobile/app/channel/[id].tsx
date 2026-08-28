@@ -55,7 +55,7 @@ export default function ChannelView() {
   const llmQuery = useQuery({
     queryKey: ["llm-connections"],
     queryFn: () => api.llmConnections(),
-    enabled: !!llmStream,
+    enabled: !!channelId,
   });
   const llmLabel = llmQuery.data?.find((c) => c.id === llmStream?.connectionId)?.label;
 
@@ -92,6 +92,36 @@ export default function ChannelView() {
   }, [channelMembersQuery.data, botIdToConn]);
   const isAiChannel = !!llmConnectionIdForChannel;
   const isDmLike = params.type === "dm" || params.type === "group";
+
+  // AI reachability — once on open (no polling); updated on send failure / socket error
+  const llmStatusQuery = useQuery({
+    queryKey: ["llm-status", llmConnectionIdForChannel],
+    queryFn: () => api.llmConnectionStatus(llmConnectionIdForChannel!),
+    enabled: isAiChannel && !!llmConnectionIdForChannel,
+    retry: false,
+    staleTime: Infinity,
+    refetchOnMount: "always",
+  });
+  const providerReachable = (llmStatusQuery.data as any)?.providerReachable as boolean | null | undefined;
+  const statusConn: any = (llmStatusQuery.data as any)?.connection ?? null;
+  const modelId = (llmQuery.data as any[])?.find((c: any) => c.id === llmConnectionIdForChannel)?.modelId as string | undefined;
+  const providerModels = (llmStatusQuery.data as any)?.providerModels as string[] | null | undefined;
+  const isAiChecking = isAiChannel && llmStatusQuery.isFetching;
+  const isAiOffline =
+    isAiChannel &&
+    !isAiChecking &&
+    (llmStatusQuery.isError || providerReachable === false || statusConn?.status === "error" || (providerModels != null && modelId != null && !providerModels.includes(modelId)));
+  const isAiOnline = isAiChannel && !isAiChecking && !isAiOffline && providerReachable === true;
+  const [showOnlineBanner, setShowOnlineBanner] = useState(false);
+  useEffect(() => {
+    if (!isAiOnline) {
+      setShowOnlineBanner(false);
+      return;
+    }
+    setShowOnlineBanner(true);
+    const t = setTimeout(() => setShowOnlineBanner(false), 3000);
+    return () => clearTimeout(t);
+  }, [isAiOnline, llmConnectionIdForChannel]);
 
   const [composerState, setComposerState] = useState<ComposerState>({ kind: "idle" });
   const [sheetFor, setSheetFor] = useState<Message | null>(null);
@@ -291,6 +321,43 @@ export default function ChannelView() {
         </View>
       </View>
 
+      {isAiChannel && (isAiChecking || isAiOffline || (isAiOnline && showOnlineBanner)) && (
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+            borderBottomColor: t.border,
+            backgroundColor: isAiChecking ? t.warning + "18" : isAiOffline ? t.destructive + "12" : t.success + "12",
+          }}
+        >
+          {isAiChecking ? (
+            <>
+              <ActivityIndicator size="small" color={t.mutedForeground} />
+              <Text style={{ color: t.mutedForeground, fontSize: 12 }}>Checking {modelId ?? "model"} reachability…</Text>
+            </>
+          ) : isAiOffline ? (
+            <>
+              <Ionicons name="cloud-offline-outline" size={14} color={t.destructive} />
+              <Text style={{ color: t.destructive, fontSize: 12, flex: 1 }} numberOfLines={1}>
+                Model offline{statusConn?.lastError ? ` — ${String(statusConn.lastError).slice(0, 80)}` : providerReachable === false ? " — provider unreachable" : " — not reachable"}
+              </Text>
+              <Pressable onPress={() => llmStatusQuery.refetch()} hitSlop={6}>
+                <Ionicons name="refresh" size={16} color={t.destructive} />
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Ionicons name="checkmark-circle" size={14} color={t.success} />
+              <Text style={{ color: t.success, fontSize: 12 }}>{modelId ?? "Model"} reachable</Text>
+            </>
+          )}
+        </View>
+      )}
+
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -405,6 +472,32 @@ export default function ChannelView() {
           onSend={async (content) => {
             const isReply = composerState.kind === "reply";
             const parentId = isReply ? composerState.parentId : undefined;
+            // if AI offline, don't insert message — pull back & keep status consistent
+            if (isAiChannel) {
+              if (isAiOffline) {
+                setSendError(`Model offline — ${statusConn?.lastError ?? "provider not reachable"}`);
+                return;
+              }
+              if (isAiChecking) {
+                setSendError("Checking model reachability — please wait a moment and retry");
+                return;
+              }
+              try {
+                const fresh: any = await api.llmConnectionStatus(llmConnectionIdForChannel!);
+                queryClient.setQueryData(["llm-status", llmConnectionIdForChannel], fresh);
+                const reachable = fresh?.providerReachable;
+                const models = fresh?.providerModels as string[] | null;
+                const status = fresh?.connection?.status;
+                const missing = models !== null && modelId != null && !models.includes(modelId);
+                if (reachable === false || status === "error" || missing) {
+                  setSendError(`Model offline — ${fresh?.connection?.lastError ?? "provider not reachable"}`);
+                  return;
+                }
+              } catch (e: any) {
+                setSendError(e instanceof Error ? e.message : "Model not reachable");
+                return;
+              }
+            }
             await sendMutation.mutateAsync({
               content,
               parentId,

@@ -70,12 +70,12 @@ export const api = {
 
   // AI model connections
   llmConnections: () => req(`/api/llm/connections`),
-  createLlmConnection: (data: { label: string; baseUrl: string; modelId: string; mentionName?: string }) =>
+  createLlmConnection: (data: { label: string; baseUrl: string; modelId: string; mentionName?: string; apiKey?: string }) =>
     req(`/api/llm/connections`, { method: "POST", body: JSON.stringify(data) }),
   deleteLlmConnection: (id: string) => req(`/api/llm/connections/${id}`, { method: "DELETE" }),
   verifyLlmConnection: (id: string) => req(`/api/llm/connections/${id}/verify`, { method: "POST", body: JSON.stringify({}) }),
   llmConnectionStatus: (id: string) => req(`/api/llm/connections/${id}/status`),
-  llmPreview: (baseUrl: string) => req(`/api/llm/preview`, { method: "POST", body: JSON.stringify({ baseUrl }) }),
+  llmPreview: (baseUrl: string, apiKey?: string) => req(`/api/llm/preview`, { method: "POST", body: JSON.stringify({ baseUrl, ...(apiKey ? { apiKey } : {}) }) }),
   createLlmDm: (connectionId: string, workspaceId: string) =>
     req(`/api/llm/connections/${connectionId}/dm`, { method: "POST", body: JSON.stringify({ workspaceId }) }),
 };

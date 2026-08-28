@@ -127,6 +127,7 @@ function LlmManager() {
   const [label, setLabel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [modelId, setModelId] = useState("");
+  const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   function invalidate() {
@@ -139,11 +140,13 @@ function LlmManager() {
         label: label.trim(),
         baseUrl: baseUrl.trim(),
         modelId: modelId.trim(),
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       }),
     onSuccess: () => {
       setLabel("");
       setBaseUrl("");
       setModelId("");
+      setApiKey("");
       setError(null);
       setShowForm(false);
       invalidate();
@@ -211,6 +214,16 @@ function LlmManager() {
             autoCorrect={false}
             value={modelId}
             onChangeText={setModelId}
+          />
+          <TextInput
+            style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground }]}
+            placeholder="API key (for cloud, blank for local)"
+            placeholderTextColor={t.mutedForeground}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+            value={apiKey}
+            onChangeText={setApiKey}
           />
           {!!error && <Text style={{ color: t.destructive, fontSize: 12 }}>{error}</Text>}
           <Pressable

@@ -144,6 +144,39 @@ export function AppSidebar() {
     queryFn: () => api.llmConnections().catch(() => []),
   });
 
+  // one-time reachability sync so the sidebar dot is consistent without polling
+  // (ChannelView also patches on open; this covers the “before opening any chat” case once)
+  useEffect(() => {
+    const list = (llmConnections as any[]) ?? [];
+    if (!list.length) return;
+    const idsToCheck = list.filter((c: any) => c.status === "ok").map((c: any) => c.id);
+    if (!idsToCheck.length) return;
+    let cancelled = false;
+    (async () => {
+      for (const id of idsToCheck) {
+        try {
+          const detail: any = await api.llmConnectionStatus(id);
+          if (cancelled || !detail?.connection) continue;
+          const reachable = detail.providerReachable;
+          const models: string[] | null = detail.providerModels;
+          const conn: any = detail.connection;
+          const modelMissing = models !== null && conn?.modelId && !models.includes(conn.modelId);
+          const shouldBeError = reachable === false || conn?.status === "error" || modelMissing;
+          const liveStatus = shouldBeError ? "error" : reachable ? "ok" : conn?.status;
+          if (liveStatus && liveStatus !== (list.find((c: any) => c.id === id) as any)?.status) {
+            qc.setQueryData(["llm-connections"], (prev: any) => {
+              if (!Array.isArray(prev)) return prev;
+              return prev.map((c: any) => (c.id === id ? { ...c, status: liveStatus, lastError: conn?.lastError ?? c.lastError } : c));
+            });
+          }
+        } catch {
+          // leave dot as-is on transient failure; ChannelView will handle on open
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [(llmConnections as any[])?.length, qc]);
+
   const openDm = useOpenDm();
   const openLlmDm = useOpenLlmDm();
 

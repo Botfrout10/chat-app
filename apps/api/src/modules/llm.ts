@@ -7,8 +7,21 @@ import { createLlmConnectionSchema, updateLlmConnectionSchema } from "@chat/shar
 import { slugify } from "@chat/shared/utils";
 import { enforceRate } from "../lib/rateLimit.js";
 import { findOrCreateLlmDm } from "../lib/llm.js";
+import { decryptApiKey, encryptApiKey } from "../lib/crypto.js";
 
 const VERIFY_TIMEOUT_MS = 5_000;
+
+function authHeaders(apiKey: string | null | undefined): Record<string, string> {
+  const h: Record<string, string> = { accept: "application/json" };
+  if (apiKey) h["authorization"] = `Bearer ${apiKey}`;
+  return h;
+}
+
+function sanitizeConnection(row: any) {
+  if (!row) return row;
+  const { apiKeyEncrypted, ...rest } = row;
+  return { ...rest, hasApiKey: !!apiKeyEncrypted };
+}
 
 // OpenAI-compatible providers expose the model list under <base>/models.
 // Accept any host root and normalize to the versioned path (/v1) — LM Studio,
@@ -25,13 +38,18 @@ type VerifyResult = {
   availableModels?: string[];
 };
 
-async function verifyConnection(baseUrl: string, modelId: string): Promise<VerifyResult> {
+async function verifyConnection(baseUrl: string, modelId: string, apiKey?: string | null): Promise<VerifyResult> {
   try {
     const res = await fetch(`${baseUrl}/models`, {
-      headers: { accept: "application/json" },
+      headers: authHeaders(apiKey),
       signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
     });
-    if (!res.ok) return { ok: false, error: `Provider responded ${res.status} ${res.statusText}` };
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      const hint = res.status === 401 ? " — Missing or invalid API key" : "";
+      const short = detail ? ` ${detail.slice(0, 200)}` : "";
+      return { ok: false, error: `Provider responded ${res.status} ${res.statusText}${hint}${short}`.slice(0, 500) };
+    }
     const data = (await res.json()) as any;
     const models: any[] = Array.isArray(data?.data) ? data.data : [];
     const found = models.find((m) => m?.id === modelId);
@@ -57,11 +75,12 @@ export async function registerLlmRoutes(app: FastifyInstance) {
   app.get("/api/llm/connections", async (req, reply) => {
     const user = await (app as any).getSessionUser(req);
     if (!user) return reply.code(401).send({ error: "Unauthorized" });
-    return db()
+    const rows = await db()
       .select()
       .from(llmConnection)
       .where(eq(llmConnection.ownerId, user.id))
       .orderBy(asc(llmConnection.createdAt));
+    return rows.map(sanitizeConnection);
   });
 
   app.post("/api/llm/connections", async (req, reply) => {
@@ -84,7 +103,8 @@ export async function registerLlmRoutes(app: FastifyInstance) {
     if (taken.has(mentionName)) mentionName = `${mentionName}-${ulid().slice(-4).toLowerCase()}`;
 
     const baseUrl = normalizeBaseUrl(data.baseUrl);
-    const result = await verifyConnection(baseUrl, data.modelId);
+    const apiKey = data.apiKey?.trim() ? data.apiKey.trim() : null;
+    const result = await verifyConnection(baseUrl, data.modelId, apiKey);
     const [row] = await db()
       .insert(llmConnection)
       .values({
@@ -94,13 +114,14 @@ export async function registerLlmRoutes(app: FastifyInstance) {
         mentionName,
         baseUrl,
         modelId: data.modelId,
+        apiKeyEncrypted: apiKey ? encryptApiKey(apiKey) : null,
         status: result.ok ? "ok" : "error",
         lastError: result.error ?? null,
         capabilities: result.capabilities ?? null,
         lastCheckedAt: new Date(),
       })
       .returning();
-    return row;
+    return sanitizeConnection(row);
   });
 
   app.patch("/api/llm/connections/:id", async (req, reply) => {
@@ -121,24 +142,31 @@ export async function registerLlmRoutes(app: FastifyInstance) {
       modelId: parsed.data.modelId ?? row.modelId,
       mentionName: parsed.data.mentionName ?? row.mentionName,
     };
+    // apiKey update: if provided, re-encrypt; empty string means keep existing
+    const incomingKey = parsed.data.apiKey?.trim();
+    const existingKey = decryptApiKey((row as any).apiKeyEncrypted);
+    const effectiveKey = incomingKey ? incomingKey : existingKey;
+    const apiKeyPatch: any = {};
+    if (incomingKey) apiKeyPatch.apiKeyEncrypted = encryptApiKey(incomingKey);
 
-    // re-verify whenever provider coordinates change
+    // re-verify whenever provider coordinates or key change
     let verify: VerifyResult | null = null;
-    if (next.baseUrl !== row.baseUrl || next.modelId !== row.modelId) {
-      verify = await verifyConnection(next.baseUrl, next.modelId);
+    if (next.baseUrl !== row.baseUrl || next.modelId !== row.modelId || incomingKey) {
+      verify = await verifyConnection(next.baseUrl, next.modelId, effectiveKey);
     }
 
     const [updated] = await dbi
       .update(llmConnection)
       .set({
         ...next,
+        ...apiKeyPatch,
         ...(verify
           ? { status: verify.ok ? "ok" : "error", lastError: verify.error ?? null, capabilities: verify.capabilities ?? null, lastCheckedAt: new Date() }
           : {}),
       })
       .where(eq(llmConnection.id, id))
       .returning();
-    return updated;
+    return sanitizeConnection(updated);
   });
 
   app.delete("/api/llm/connections/:id", async (req, reply) => {
@@ -163,7 +191,8 @@ export async function registerLlmRoutes(app: FastifyInstance) {
     const [row] = await dbi.select().from(llmConnection).where(and(eq(llmConnection.id, id), eq(llmConnection.ownerId, user.id)));
     if (!row) return reply.code(404).send({ error: "Connection not found" });
 
-    const result = await verifyConnection(row.baseUrl, row.modelId);
+    const apiKey = decryptApiKey((row as any).apiKeyEncrypted);
+    const result = await verifyConnection(row.baseUrl, row.modelId, apiKey);
     const [updated] = await dbi
       .update(llmConnection)
       .set({
@@ -174,7 +203,7 @@ export async function registerLlmRoutes(app: FastifyInstance) {
       })
       .where(eq(llmConnection.id, id))
       .returning();
-    return updated;
+    return sanitizeConnection(updated);
   });
 
   // find-or-create the owner's DM channel with this model (inside a workspace)
@@ -200,16 +229,18 @@ export async function registerLlmRoutes(app: FastifyInstance) {
     const user = await (app as any).getSessionUser(req);
     if (!user) return reply.code(401).send({ error: "Unauthorized" });
     if (!(await enforceRate(app.redis, req, reply, { name: "llm-verify", max: 10, windowMs: 60_000, subject: user.id }))) return;
-    const parsed = z.object({ baseUrl: z.string().min(1).max(500) }).safeParse(req.body);
+    const parsed = z.object({ baseUrl: z.string().min(1).max(500), apiKey: z.string().max(500).optional() }).safeParse(req.body);
     if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
     const baseUrl = normalizeBaseUrl(parsed.data.baseUrl);
+    const apiKey = parsed.data.apiKey?.trim() || null;
     try {
       const res = await fetch(`${baseUrl}/models`, {
-        headers: { accept: "application/json" },
+        headers: authHeaders(apiKey),
         signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
       });
       if (!res.ok) {
-        return reply.code(400).send({ error: `Provider responded ${res.status} ${res.statusText}`, providerReachable: false, providerModels: null, baseUrl });
+        const hint = res.status === 401 ? " — Missing or invalid API key" : "";
+        return reply.code(400).send({ error: `Provider responded ${res.status} ${res.statusText}${hint}`, providerReachable: false, providerModels: null, baseUrl });
       }
       const data = (await res.json()) as any;
       const models: string[] = (Array.isArray(data?.data) ? data.data : []).map((m: any) => m?.id).filter(Boolean);
@@ -231,9 +262,10 @@ export async function registerLlmRoutes(app: FastifyInstance) {
     if (!row) return reply.code(404).send({ error: "Connection not found" });
 
     let providerModels: string[] | null = null;
+    const apiKey = decryptApiKey((row as any).apiKeyEncrypted);
     try {
       const res = await fetch(`${row.baseUrl}/models`, {
-        headers: { accept: "application/json" },
+        headers: authHeaders(apiKey),
         signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
       });
       if (res.ok) {
@@ -245,7 +277,7 @@ export async function registerLlmRoutes(app: FastifyInstance) {
     }
 
     return {
-      connection: row,
+      connection: sanitizeConnection(row),
       providerReachable: providerModels !== null,
       providerModels,
     };

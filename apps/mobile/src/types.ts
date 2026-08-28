@@ -116,6 +116,7 @@ export type PresignResponse = {
 export type LlmConnection = {
   id: string;
   ownerId: string;
+  botUserId?: string | null;
   label: string;
   mentionName: string;
   provider: string;
@@ -123,5 +124,8 @@ export type LlmConnection = {
   modelId: string;
   status: "unverified" | "ok" | "error";
   lastError: string | null;
+  capabilities?: any;
+  lastCheckedAt?: string | null;
+  hasApiKey?: boolean;
   createdAt: string;
 };
