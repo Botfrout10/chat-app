@@ -92,6 +92,7 @@ export default function ChannelView() {
     return null;
   }, [channelMembersQuery.data, botIdToConn]);
   const isAiChannel = !!llmConnectionIdForChannel;
+  const isAgentChannel = !!(params as any).agentId || (params as any).type === "agent";
   const isDmLike = params.type === "dm" || params.type === "group";
 
   // AI reachability — once on open (no polling); updated on send failure / socket error
@@ -113,6 +114,10 @@ export default function ChannelView() {
     !isAiChecking &&
     (llmStatusQuery.isError || providerReachable === false || statusConn?.status === "error" || (providerModels != null && modelId != null && !providerModels.includes(modelId)));
   const isAiOnline = isAiChannel && !isAiChecking && !isAiOffline && providerReachable === true;
+  // Agent queuing — mirrors AI offline but queues instead of keep-in-input (placeholder until agent status API)
+  const isAgentChecking = isAgentChannel && llmStatusQuery.isFetching;
+  const isAgentOffline = isAgentChannel && !isAgentChecking && (llmStatusQuery.isError || providerReachable === false);
+  const isAgentOnline = isAgentChannel && !isAgentChecking && !isAgentOffline && providerReachable === true;
   const [showOnlineBanner, setShowOnlineBanner] = useState(false);
   useEffect(() => {
     if (!isAiOnline) {
@@ -132,6 +137,7 @@ export default function ChannelView() {
   const [attachSheet, setAttachSheet] = useState(false);
   const [showStreamThinking, setShowStreamThinking] = useState(false);
   const [restoreDraft, setRestoreDraft] = useState<string | null>(null);
+  const [agentQueue, setAgentQueue] = useState<Array<{ content: string; attachments: UploadedMeta[] }>>([]);
 
   function formatLlmError(raw: string): string {
     const s = String(raw ?? "");
@@ -525,6 +531,24 @@ export default function ChannelView() {
             {typingLabel}
           </Text>
         )}
+        {isAgentChannel && agentQueue.length > 0 && (
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 8, backgroundColor: t.warning + "18", borderTopWidth: StyleSheet.hairlineWidth, borderColor: t.border }}>
+            <Text style={{ color: t.warning, fontSize: 12, flex: 1 }}>{agentQueue.length} queued for agent</Text>
+            <Pressable onPress={() => setAgentQueue([])} style={{ paddingHorizontal: 8 }}><Text style={{ color: t.mutedForeground, fontSize: 12 }}>Clear</Text></Pressable>
+            <Pressable
+              onPress={async () => {
+                const copy = [...agentQueue];
+                setAgentQueue([]);
+                for (const item of copy) {
+                  try { await sendMutation.mutateAsync({ content: item.content, attachments: item.attachments }); } catch { setAgentQueue((prev) => [...copy.slice(copy.indexOf(item)), ...prev]); break; }
+                }
+              }}
+              style={{ paddingHorizontal: 8 }}
+            >
+              <Text style={{ color: t.primary, fontWeight: "600", fontSize: 12 }}>Send now</Text>
+            </Pressable>
+          </View>
+        )}
 
         <MessageComposer
           channelId={channelId}
@@ -541,8 +565,44 @@ export default function ChannelView() {
           onSend={async (content) => {
             const isReply = composerState.kind === "reply";
             const parentId = isReply ? composerState.parentId : undefined;
-            // if AI offline, don't insert message — keep draft in composer
-            if (isAiChannel) {
+            // Agent chats: queue when unreachable (keeps queuing mechanism for agents)
+            if (isAgentChannel) {
+              if (isAgentOffline) {
+                setAgentQueue((q) => [...q, { content, attachments: pending }]);
+                setPending([]);
+                setSendError("Agent offline — message queued");
+                if (isReply) setComposerState({ kind: "idle" });
+                return;
+              }
+              if (isAgentChecking) {
+                setAgentQueue((q) => [...q, { content, attachments: pending }]);
+                setPending([]);
+                setSendError("Checking agent — message queued");
+                if (isReply) setComposerState({ kind: "idle" });
+                return;
+              }
+              try {
+                const fresh: any = await api.llmConnectionStatus(llmConnectionIdForChannel!);
+                queryClient.setQueryData(["llm-status", llmConnectionIdForChannel], fresh);
+                const reachable = fresh?.providerReachable;
+                const status = fresh?.connection?.status;
+                if (reachable === false || status === "error") {
+                  setAgentQueue((q) => [...q, { content, attachments: pending }]);
+                  setPending([]);
+                  setSendError("Agent offline — message queued");
+                  if (isReply) setComposerState({ kind: "idle" });
+                  return;
+                }
+              } catch {
+                setAgentQueue((q) => [...q, { content, attachments: pending }]);
+                setPending([]);
+                setSendError("Agent offline — message queued");
+                if (isReply) setComposerState({ kind: "idle" });
+                return;
+              }
+            }
+            // AI chats: keep in input when unreachable
+            if (isAiChannel && !isAgentChannel) {
               if (isAiOffline) {
                 const msg = `Model offline — ${statusConn?.lastError ?? "provider not reachable"}`;
                 setSendError(msg);
@@ -566,7 +626,6 @@ export default function ChannelView() {
                   throw new Error(msg);
                 }
               } catch (e: any) {
-                // if we already set a Model offline error above, preserve it
                 if (e instanceof Error && e.message.startsWith("Model offline")) throw e;
                 const msg = e instanceof Error ? e.message : "Model not reachable";
                 setSendError(msg);

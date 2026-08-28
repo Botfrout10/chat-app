@@ -433,6 +433,8 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     return (conn?.modelId as string | undefined) ?? undefined;
   }, [llmConnections, llmConnectionIdForChannel]);
   const isAiChannel = !!llmConnectionIdForChannel;
+  // Agent chats (ACP) — keep queuing when agent unreachable, unlike AI which keeps in input
+  const isAgentChannel = !!(channel as any)?.agentId || !!(channel as any)?.agentRegistrationId || (channel as any)?.type === "agent";
   const isDm = channel?.type === "dm";
   const title = isDm ? `${channel?.dmPeer?.name ?? "direct message"}` : `${channel?.name ?? channelId.slice(0, 8)}`;
   const aiBotId = useMemo(() => {
@@ -636,7 +638,42 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
 
   async function handlePromptSubmitQueued({ text, files }: { text: string; files: FileUIPart[] }) {
     if (!text.trim() && files.length === 0) return;
-    // keep message in input when AI offline — don't persist, just toast and restore draft
+    // Agent chats: queue when agent offline (keeps queuing mechanism for agents)
+    if (isAgentChannel) {
+      if (isModelOffline) {
+        const id = ulid();
+        setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
+        toast.message("Agent offline — message queued", { description: `Will send when agent is reachable.` });
+        return;
+      }
+      if (isModelChecking) {
+        const id = ulid();
+        setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
+        toast.message("Checking agent… message queued", { description: "Will send as soon as reachability is confirmed." });
+        return;
+      }
+      try {
+        const fresh: any = await api.llmConnectionStatus(llmConnectionIdForChannel!);
+        qc.setQueryData(["llm-status", llmConnectionIdForChannel], fresh);
+        const reachable = fresh?.providerReachable;
+        const models = fresh?.providerModels as string[] | null;
+        const status = fresh?.connection?.status;
+        const modelMissing = models !== null && modelId != null && !models.includes(modelId);
+        const freshOffline = reachable === false || status === "error" || modelMissing;
+        if (freshOffline) {
+          const id = ulid();
+          setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
+          toast.message("Agent offline — message queued", { description: `Will send when agent is reachable.` });
+          return;
+        }
+      } catch {
+        const id = ulid();
+        setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
+        toast.message("Agent offline — message queued", { description: `Will send when agent is reachable.` });
+        return;
+      }
+    }
+    // AI chats: keep message in input when AI offline — don't persist, just toast and restore draft
     const restoreDraft = (msg: string) => {
       const reason = statusConn?.lastError ? ` — ${String(statusConn.lastError).slice(0, 120)}` : providerReachable === false ? " — provider unreachable" : "";
       toast.error(`Model offline${reason}`, { description: "Fix the model or try again — your message was kept in the composer." });
@@ -644,16 +681,16 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       // Re-populate input so user doesn't lose draft.
       setInput(text);
     };
-    if (isAiChannel && isModelOffline) {
+    if (isAiChannel && !isAgentChannel && isModelOffline) {
       restoreDraft(text);
       return;
     }
-    if (isAiChannel && isModelChecking) {
+    if (isAiChannel && !isAgentChannel && isModelChecking) {
       toast.message("Checking model… please wait", { description: "Reachability check in progress — try again in a moment. Your draft was kept." });
       setInput(text);
       return;
     }
-    if (isAiChannel) {
+    if (isAiChannel && !isAgentChannel) {
       try {
         const fresh: any = await api.llmConnectionStatus(llmConnectionIdForChannel!);
         qc.setQueryData(["llm-status", llmConnectionIdForChannel], fresh);
@@ -674,19 +711,28 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         return;
       }
     }
-    // direct send with queue fallback — bypasses handlePromptSubmit's swallowed alerts
-    // so a failed AI-channel send is queued instead of being dropped
+    // direct send — for agents queue on failure, for AI keep in input
+    if (isAgentChannel) {
+      setUploading(true);
+      try {
+        const atts: { key: string; filename: string; mime: string; size: number }[] = [];
+        for (const f of files) atts.push(await uploadAttachmentPart(f));
+        await send(text, atts);
+      } catch (e: any) {
+        const id = ulid();
+        setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
+        toast.message("Send failed — message queued", { description: String(e?.message ?? e).slice(0, 160) });
+      } finally {
+        setUploading(false);
+      }
+      return;
+    }
     if (isAiChannel) {
       setUploading(true);
       try {
         const atts: { key: string; filename: string; mime: string; size: number }[] = [];
         for (const f of files) atts.push(await uploadAttachmentPart(f));
         await send(text, atts);
-        // send() swallows its own errors and alerts, so check if message actually
-        // appeared is not reliable — instead we rely on the fresh check above
-        // and on send throwing via the fix below. If send was swallowed, this
-        // will still appear as success, which is okay because fresh check already
-        // verified reachability.
       } catch (e: any) {
         toast.error(`Send failed — ${String(e?.message ?? e).slice(0, 160)}`, { description: "Your draft was kept in the composer." });
         setInput(text);
@@ -810,11 +856,11 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           )}
         </div>
       )}
-      {isAiChannel && pendingQueue.length > 0 && (
+      {(isAgentChannel || isAiChannel) && pendingQueue.length > 0 && (
         <div className="mx-3 mt-2 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/20 px-3 py-2">
           <div className="flex items-center justify-between gap-2">
             <span className="flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
-              <Clock className="h-3.5 w-3.5" /> {pendingQueue.length} queued message{pendingQueue.length > 1 ? "s" : ""} — will send when model is back
+              <Clock className="h-3.5 w-3.5" /> {pendingQueue.length} queued message{pendingQueue.length > 1 ? "s" : ""} — will send when {isAgentChannel ? "agent" : "model"} is back
             </span>
             <div className="flex gap-1">
               <Button variant="ghost" size="sm" onClick={() => setPendingQueue([])} className="h-7 text-xs">

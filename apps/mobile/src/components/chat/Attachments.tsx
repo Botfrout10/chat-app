@@ -5,23 +5,26 @@ import { useState } from "react";
 import * as FileSystemLegacy from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 
-import { api, rewriteAssetUrl } from "@/api/client";
+import { api, API_URL, rewriteAssetUrl } from "@/api/client";
+import { loadToken, useSession } from "@/lib/session";
 import { useTheme } from "@/theme/useTheme";
 import type { Attachment } from "@/types";
 
 const IMAGE_RE = /^image\//;
 
-/** Presigned S3 URL via API (auth via Authorization header), then rewritten for emulator/LAN. */
+/** Proxied raw via API — uses Authorization header (more reliable than ?token for Image). */
 export function useSignedUrl(key: string | null) {
-  return useQuery({
-    queryKey: ["attachment-signed", key],
+  const { token } = useSession();
+  return useQuery<{ uri: string; headers: Record<string, string> }>({
+    queryKey: ["attachment-raw", key, token ?? "no-token"],
     queryFn: async () => {
-      const res = await api.signedUrl(key!);
-      return rewriteAssetUrl(res.url);
+      const t = token ?? (await loadToken());
+      const base = `${API_URL}/api/attachments/${encodeURIComponent(key!)}/raw`;
+      return { uri: base, headers: t ? { Authorization: `Bearer ${t}` } : ({} as Record<string, string>) };
     },
     enabled: !!key,
-    staleTime: 55 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     retry: 1,
   });
 }
@@ -32,22 +35,27 @@ export function useRawUrl(key: string | null) {
 }
 
 export function Attachments({ attachments }: { attachments: Attachment[] }) {
-  const [lightbox, setLightbox] = useState<{ uri: string; name: string; mime: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ uri: string; headers?: Record<string, string>; name: string; mime: string } | null>(null);
   if (!attachments.length) return null;
   return (
     <>
       <View style={styles.wrap}>
         {attachments.map((a) =>
           IMAGE_RE.test(a.mime) || /\.(png|jpe?g|gif|webp)$/i.test(a.filename) ? (
-            <AttachmentImage key={a.id} attachment={a} onOpen={(uri) => setLightbox({ uri, name: a.filename, mime: a.mime })} />
+            <AttachmentImage
+              key={a.id}
+              attachment={a}
+              onOpen={(uri, headers) => setLightbox({ uri, headers, name: a.filename, mime: a.mime })}
+            />
           ) : (
-            <AttachmentFile key={a.id} attachment={a} onOpen={(uri) => setLightbox({ uri, name: a.filename, mime: a.mime })} />
+            <AttachmentFile key={a.id} attachment={a} onOpen={(uri, headers) => setLightbox({ uri, headers, name: a.filename, mime: a.mime })} />
           ),
         )}
       </View>
       <AttachmentLightbox
         visible={!!lightbox}
         uri={lightbox?.uri ?? null}
+        headers={lightbox?.headers}
         name={lightbox?.name ?? ""}
         mime={lightbox?.mime ?? ""}
         onClose={() => setLightbox(null)}
@@ -56,10 +64,11 @@ export function Attachments({ attachments }: { attachments: Attachment[] }) {
   );
 }
 
-function AttachmentImage({ attachment, onOpen }: { attachment: Attachment; onOpen: (uri: string) => void }) {
+function AttachmentImage({ attachment, onOpen }: { attachment: Attachment; onOpen: (uri: string, headers?: Record<string, string>) => void }) {
   const t = useTheme();
   const signed = useSignedUrl(attachment.key);
-  const url = typeof signed.data === "string" ? (signed.data as string) : (signed.data as any)?.url ?? null;
+  const url = signed.data?.uri ?? null;
+  const headers = signed.data?.headers;
 
   if (signed.isError) {
     return (
@@ -73,14 +82,14 @@ function AttachmentImage({ attachment, onOpen }: { attachment: Attachment; onOpe
   return (
     <Pressable
       onPress={() => {
-        if (url) onOpen(url);
+        if (url) onOpen(url, headers);
       }}
       disabled={!url}
       style={[styles.imageWrap, { backgroundColor: t.muted }]}
     >
       {url ? (
         <Image
-          source={{ uri: url }}
+          source={headers && Object.keys(headers).length ? { uri: url, headers } as any : { uri: url }}
           style={styles.image}
           resizeMode="cover"
           onError={(e) => console.warn("[AttachmentImage] load error", e.nativeEvent?.error ?? e)}
@@ -102,15 +111,16 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function AttachmentFile({ attachment, onOpen }: { attachment: Attachment; onOpen: (uri: string) => void }) {
+function AttachmentFile({ attachment, onOpen }: { attachment: Attachment; onOpen: (uri: string, headers?: Record<string, string>) => void }) {
   const t = useTheme();
   const signed = useSignedUrl(attachment.key);
-  const url = typeof signed.data === "string" ? (signed.data as string) : (signed.data as any)?.url ?? null;
+  const url = signed.data?.uri ?? null;
+  const headers = signed.data?.headers;
 
   return (
     <Pressable
       onPress={() => {
-        if (url) onOpen(url);
+        if (url) onOpen(url, headers);
       }}
       disabled={!url}
       style={[styles.fileChip, { backgroundColor: t.accent50, borderColor: t.border }]}
@@ -129,11 +139,11 @@ function AttachmentFile({ attachment, onOpen }: { attachment: Attachment; onOpen
   );
 }
 
-async function downloadAndOpen(uri: string, filename: string, mime: string) {
+async function downloadAndOpen(uri: string, filename: string, mime: string, headers?: Record<string, string>) {
   try {
     const cacheDir = (FileSystemLegacy as any).cacheDirectory as string | null;
     const target = cacheDir ? `${cacheDir}${filename}` : filename;
-    const dl = await (FileSystemLegacy as any).downloadAsync(uri, target);
+    const dl = await (FileSystemLegacy as any).downloadAsync(uri, target, { headers: headers ?? {} });
     const available = await Sharing.isAvailableAsync();
     if (available) {
       await Sharing.shareAsync(dl.uri, { mimeType: mime, dialogTitle: filename, UTI: mime });
@@ -148,12 +158,14 @@ async function downloadAndOpen(uri: string, filename: string, mime: string) {
 function AttachmentLightbox({
   visible,
   uri,
+  headers,
   name,
   mime,
   onClose,
 }: {
   visible: boolean;
   uri: string | null;
+  headers?: Record<string, string>;
   name: string;
   mime: string;
   onClose: () => void;
@@ -165,7 +177,7 @@ function AttachmentLightbox({
     if (!uri) return;
     setDownloading(true);
     try {
-      await downloadAndOpen(uri, name, mime);
+      await downloadAndOpen(uri, name, mime, headers);
     } finally {
       setDownloading(false);
     }
@@ -191,7 +203,7 @@ function AttachmentLightbox({
               showsVerticalScrollIndicator={false}
               centerContent
             >
-              <Image source={{ uri }} style={styles.lightboxImage} resizeMode="contain" />
+              <Image source={headers && Object.keys(headers).length ? ({ uri, headers } as any) : { uri }} style={styles.lightboxImage} resizeMode="contain" />
             </ScrollView>
           ) : (
             <View style={[styles.lightboxFile, { backgroundColor: t.card }]}>
