@@ -5,28 +5,23 @@ import { useState } from "react";
 import * as FileSystemLegacy from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 
-import { API_URL } from "@/api/client";
-import { loadToken } from "@/lib/session";
-import { useSession } from "@/lib/session";
+import { api, rewriteAssetUrl } from "@/api/client";
 import { useTheme } from "@/theme/useTheme";
 import type { Attachment } from "@/types";
 
 const IMAGE_RE = /^image\//;
 
-/** Proxied GET via API — includes bearer token in query so both <Image> and Linking work without custom headers. */
+/** Presigned S3 URL via API (auth via Authorization header), then rewritten for emulator/LAN. */
 export function useSignedUrl(key: string | null) {
-  const { token } = useSession();
   return useQuery({
-    queryKey: ["attachment-raw", key, token ?? "no-token"],
+    queryKey: ["attachment-signed", key],
     queryFn: async () => {
-      const t = token ?? (await loadToken());
-      if (!t) throw new Error("Missing session token");
-      const base = `${API_URL}/api/attachments/${encodeURIComponent(key!)}/raw`;
-      return `${base}?token=${encodeURIComponent(t)}`;
+      const res = await api.signedUrl(key!);
+      return rewriteAssetUrl(res.url);
     },
     enabled: !!key,
-    staleTime: 4 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    staleTime: 55 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
     retry: 1,
   });
 }

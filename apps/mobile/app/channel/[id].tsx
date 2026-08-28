@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/api/client";
+import { api, rewriteAssetUrl } from "@/api/client";
 import { ActionSheet, QuickReactions, type Action } from "@/components/chat/ActionSheet";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { MessageComposer, type ComposerState } from "@/components/chat/MessageComposer";
@@ -23,6 +23,7 @@ import { joinChannelRoom, leaveChannelRoom } from "@/hooks/useChatEvents";
 import { useChannelMembers, useMe, useMembers, useMessages } from "@/hooks/queries";
 import { useRequireSession } from "@/hooks/useRequireSession";
 import { useSession } from "@/lib/session";
+import { getSocket } from "@/lib/socket";
 import { useChatStore } from "@/stores/chat";
 import { pickDocument, pickImage, uploadAttachment, type UploadedMeta } from "@/lib/upload";
 import { useTheme } from "@/theme/useTheme";
@@ -130,6 +131,66 @@ export default function ChannelView() {
   const [uploading, setUploading] = useState(false);
   const [attachSheet, setAttachSheet] = useState(false);
   const [showStreamThinking, setShowStreamThinking] = useState(false);
+  const [restoreDraft, setRestoreDraft] = useState<string | null>(null);
+
+  function formatLlmError(raw: string): string {
+    const s = String(raw ?? "");
+    try {
+      const jsonStart = s.indexOf("{");
+      if (jsonStart !== -1) {
+        const parsed = JSON.parse(s.slice(jsonStart));
+        const inner = parsed?.error?.message || parsed?.error || parsed?.message;
+        if (typeof inner === "string" && inner) {
+          if (/missing api key/i.test(inner)) return "Missing API key — add it in AI Models settings";
+          if (/invalid api key|auth/i.test(inner)) return `Authentication failed — ${inner.slice(0, 120)}`;
+          return inner.slice(0, 200);
+        }
+      }
+    } catch {}
+    if (/missing api key/i.test(s)) return "Missing API key — add it in AI Models settings";
+    if (s.includes("401") || /auth/i.test(s)) return s.replace(/^Provider responded.*?:\s*/, "").slice(0, 200) || "Authentication failed — check API key";
+    return s.slice(0, 200);
+  }
+
+  // keep draft when LLM fails after message was persisted (e.g. 401 missing key)
+  useEffect(() => {
+    if (!isAiChannel || !llmConnectionIdForChannel) return;
+    const socket = getSocket();
+    const onError = (p: any) => {
+      if (p.channelId !== channelId && p.connectionId !== llmConnectionIdForChannel) return;
+      const raw = String(p.error ?? "");
+      const msg = formatLlmError(raw);
+      setSendError(msg);
+      queryClient.setQueryData(["llm-status", llmConnectionIdForChannel], (prev: any) => {
+        if (!prev) return prev;
+        return { ...prev, providerReachable: false, connection: { ...prev.connection, status: "error", lastError: msg || prev.connection?.lastError } };
+      });
+      queryClient.setQueryData(["llm-connections"], (prev: any) => {
+        if (!Array.isArray(prev)) return prev;
+        return prev.map((c: any) => (c.id === llmConnectionIdForChannel ? { ...c, status: "error", lastError: msg || c.lastError } : c));
+      });
+      try {
+        const data: any = queryClient.getQueryData(["messages", channelId]);
+        const pages = data?.pages as any[] | undefined;
+        if (pages && me?.id) {
+          const flatList: any[] = pages.flatMap((p) => p.messages);
+          const lastHuman = [...flatList].reverse().find((m: any) => m.senderId === me.id && !m.deletedAt && !m.id.startsWith("temp-"));
+          if (lastHuman && lastHuman.content) {
+            queryClient.setQueryData(["messages", channelId], (old: any) => {
+              if (!old) return old;
+              return { ...old, pages: old.pages.map((p: any) => ({ ...p, messages: p.messages.filter((m: any) => m.id !== lastHuman.id) })) };
+            });
+            setRestoreDraft(lastHuman.content);
+            void api.deleteMessage(lastHuman.id).catch(() => {});
+            void api.markRead(channelId, lastHuman.id).catch(() => {});
+          }
+        }
+      } catch {}
+      void llmStatusQuery.refetch();
+    };
+    socket.on("llm:error", onError);
+    return () => { socket.off("llm:error", onError); };
+  }, [isAiChannel, llmConnectionIdForChannel, channelId, me?.id, queryClient]);
 
   // join/leave the socket room for live updates
   useEffect(() => {
@@ -475,6 +536,8 @@ export default function ChannelView() {
           onRemoveAttachment={(i) => setPending((p) => p.filter((_, j) => j !== i))}
           members={(membersQuery.data as any[]) ?? []}
           llmConnections={(llmQuery.data as any[]) ?? []}
+          restoreDraft={restoreDraft}
+          onRestoreConsumed={() => setRestoreDraft(null)}
           onSend={async (content) => {
             const isReply = composerState.kind === "reply";
             const parentId = isReply ? composerState.parentId : undefined;

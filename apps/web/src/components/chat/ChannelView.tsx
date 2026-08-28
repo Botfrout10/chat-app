@@ -488,14 +488,35 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     return () => clearTimeout(t);
   }, [isModelOnline, llmConnectionIdForChannel]);
 
-  // socket llm:error for this channel/connection → mark offline immediately + toast
+  function formatLlmError(raw: string): string {
+    const s = String(raw ?? "");
+    // try extract JSON inside "Provider responded 401: {...}"
+    try {
+      const jsonStart = s.indexOf("{");
+      if (jsonStart !== -1) {
+        const parsed = JSON.parse(s.slice(jsonStart));
+        const inner = parsed?.error?.message || parsed?.error || parsed?.message;
+        if (typeof inner === "string" && inner) {
+          if (/missing api key/i.test(inner)) return "Missing API key — add it in AI Models settings";
+          if (/invalid api key|auth/i.test(inner)) return `Authentication failed — ${inner.slice(0, 120)}`;
+          return inner.slice(0, 200);
+        }
+      }
+    } catch {}
+    if (/missing api key/i.test(s)) return "Missing API key — add it in AI Models settings";
+    if (s.includes("401") || /auth/i.test(s)) return s.replace(/^Provider responded.*?:\s*/, "").slice(0, 200) || "Authentication failed — check API key";
+    return s.slice(0, 200);
+  }
+
+  // socket llm:error for this channel/connection → mark offline immediately + toast + keep draft
   useEffect(() => {
     if (!isAiChannel || !llmConnectionIdForChannel) return;
     const s = getSocket();
     const onError = (p: any) => {
       if (p.channelId === channelId || p.connectionId === llmConnectionIdForChannel) {
-        const msg = String(p.error ?? "").slice(0, 300);
-        if (msg) toast.error(msg.includes("401") || msg.toLowerCase().includes("api key") ? `Model failed: ${msg}` : `Model error: ${msg}`);
+        const raw = String(p.error ?? "");
+        const msg = formatLlmError(raw);
+        if (msg) toast.error(msg);
         // patch cache to error so dot turns red without extra fetch
         qc.setQueryData(["llm-status", llmConnectionIdForChannel], (prev: any) => {
           if (!prev) return prev;
@@ -505,13 +526,34 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
           if (!Array.isArray(prev)) return prev;
           return prev.map((c: any) => c.id === llmConnectionIdForChannel ? { ...c, status: "error", lastError: msg || c.lastError } : c);
         });
+        // keep draft: if last human message was just sent, pull it back into composer
+        try {
+          const data: any = qc.getQueryData(["messages", channelId]);
+          const pages = data?.pages as any[] | undefined;
+          if (pages && meId) {
+            // find newest message by current user in this channel
+            const flat = pages.flatMap((p) => p.messages).slice().reverse();
+            const lastHuman = [...flat].reverse().find((m: any) => m.senderId === meId && !m.deletedAt) as any;
+            if (lastHuman && lastHuman.content) {
+              // remove from cache (pull back)
+              qc.setQueryData(["messages", channelId], (old: any) => {
+                if (!old) return old;
+                return { ...old, pages: old.pages.map((p: any) => ({ ...p, messages: p.messages.filter((m: any) => m.id !== lastHuman.id) })) };
+              });
+              // restore to input
+              setInput(lastHuman.content);
+              // try delete on server (fire-and-forget, own message)
+              api.deleteMessage(lastHuman.id).catch(() => {});
+            }
+          }
+        } catch {}
         // refresh in background to confirm provider state if needed, but no polling loop
         refetchLlmStatus();
       }
     };
     s.on("llm:error", onError);
     return () => { s.off("llm:error", onError); };
-  }, [isAiChannel, llmConnectionIdForChannel, channelId, qc, refetchLlmStatus]);
+  }, [isAiChannel, llmConnectionIdForChannel, channelId, qc, refetchLlmStatus, meId]);
 
   // keep sidebar dot fresh when live status diverges from cached connections
   useEffect(() => {

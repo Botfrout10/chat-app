@@ -284,7 +284,13 @@ export default function Chats() {
               {!collapsed.channels && !channelList.length && !channelsQuery.isPending && <Empty text="No channels yet" />}
             </Section>
           ) : item.kind === "models" ? (
-            <Section title="AI models" collapsed={collapsed.models} onToggle={() => toggle("models")}>
+            <Section
+              title="AI models"
+              actionLabel="Add model"
+              onAction={() => router.push("/(tabs)/settings")}
+              collapsed={collapsed.models}
+              onToggle={() => toggle("models")}
+            >
               {!collapsed.models && (llmQuery.data ?? []).map((conn) => (
                 <Pressable
                   key={conn.id}

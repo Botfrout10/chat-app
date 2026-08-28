@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs, useRouter, useSegments } from "expo-router";
-import { useMemo } from "react";
-import { PanResponder, Platform, View } from "react-native";
+import { useEffect, useMemo } from "react";
+import { LayoutAnimation, PanResponder, Platform, UIManager, View } from "react-native";
 
 import { useNotifications } from "@/hooks/queries";
 import { useRequireSession } from "@/hooks/useRequireSession";
@@ -23,6 +23,16 @@ export default function TabsLayout() {
     return i === -1 ? 0 : i;
   }, [currentTab]);
 
+  // LayoutAnimation is no-op on New Architecture — only enable on old arch to avoid warning
+  useEffect(() => {
+    const isFabric = !!(globalThis as any).nativeFabricUIManager;
+    if (Platform.OS === "android" && !isFabric && UIManager.setLayoutAnimationEnabledExperimental) {
+      try {
+        UIManager.setLayoutAnimationEnabledExperimental(true);
+      } catch {}
+    }
+  }, []);
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -36,6 +46,12 @@ export default function TabsLayout() {
           if (!velocityOk) return;
           const nextIdx = isLeft ? idx + 1 : isRight ? idx - 1 : idx;
           if (nextIdx < 0 || nextIdx >= order.length || nextIdx === idx) return;
+          const isFabric = !!(globalThis as any).nativeFabricUIManager;
+          if (Platform.OS !== "web" && !isFabric) {
+            try {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            } catch {}
+          }
           router.push(`/(tabs)/${order[nextIdx]}` as any);
         },
       }),

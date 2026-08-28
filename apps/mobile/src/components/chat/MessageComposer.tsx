@@ -34,6 +34,8 @@ export function MessageComposer({
   uploading,
   members,
   llmConnections,
+  restoreDraft,
+  onRestoreConsumed,
 }: {
   channelId: string;
   disabled?: boolean;
@@ -47,6 +49,8 @@ export function MessageComposer({
   uploading?: boolean;
   members?: { id: string; name: string; email?: string }[];
   llmConnections?: { id: string; label: string; mentionName: string }[];
+  restoreDraft?: string | null;
+  onRestoreConsumed?: () => void;
 }) {
   const t = useTheme();
   const [text, setText] = useState("");
@@ -68,6 +72,14 @@ export function MessageComposer({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
+
+  // restore draft when LLM fails (keep in input)
+  useEffect(() => {
+    if (restoreDraft) {
+      setText(restoreDraft);
+      onRestoreConsumed?.();
+    }
+  }, [restoreDraft, onRestoreConsumed]);
 
   function emitTyping(isTyping: boolean) {
     const socket = getSocket();
