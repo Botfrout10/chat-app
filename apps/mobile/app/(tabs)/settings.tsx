@@ -4,14 +4,17 @@ import { useRouter } from "expo-router";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { useState } from "react";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/api/client";
 import { useMe } from "@/hooks/queries";
@@ -26,6 +29,7 @@ export default function Settings() {
   const queryClient = useQueryClient();
   const { token, signOut } = useSession();
   const meQuery = useMe(!!token);
+  const insets = useSafeAreaInsets();
 
   async function handleSignOut() {
     await signOut();
@@ -35,8 +39,17 @@ export default function Settings() {
   const me = meQuery.data;
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: t.background }]}>
-      <View style={styles.content}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: t.background }]} edges={["top", "bottom"]}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
+      >
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         <Text style={[styles.heading, { color: t.foreground }]}>Settings</Text>
 
         <View style={[styles.card, { backgroundColor: t.card, borderColor: t.border }]}>
@@ -73,7 +86,8 @@ export default function Settings() {
         >
           <Text style={[styles.signOutText, { color: t.destructive }]}>Sign out</Text>
         </Pressable>
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -135,13 +149,7 @@ function LlmManager() {
   }
 
   const createMutation = useMutation({
-    mutationFn: () =>
-      api.createLlmConnection({
-        label: label.trim(),
-        baseUrl: baseUrl.trim(),
-        modelId: modelId.trim(),
-        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-      }),
+    mutationFn: (vars: { label: string; baseUrl: string; modelId: string; apiKey?: string }) => api.createLlmConnection(vars),
     onSuccess: () => {
       setLabel("");
       setBaseUrl("");
@@ -167,13 +175,32 @@ function LlmManager() {
     ]);
   }
 
+  function normalizeBaseUrl(raw: string): string {
+    let s = raw.trim();
+    if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
+    return s;
+  }
+
   function submit() {
     setError(null);
     if (!label.trim() || !baseUrl.trim() || !modelId.trim()) {
       setError("All fields are required");
       return;
     }
-    createMutation.mutate();
+    const normalized = normalizeBaseUrl(baseUrl);
+    try {
+      new URL(normalized);
+    } catch {
+      setError("Base URL is not valid. Include http://");
+      return;
+    }
+    if (normalized !== baseUrl) setBaseUrl(normalized);
+    createMutation.mutate({
+      label: label.trim(),
+      baseUrl: normalized,
+      modelId: modelId.trim(),
+      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+    });
   }
 
   const conns = listQuery.data ?? [];

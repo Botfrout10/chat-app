@@ -93,14 +93,14 @@ export default function Chats() {
     enabled: !paletteOpen,
     atTopRef,
     onOpen: () => setPaletteOpen(true),
-    threshold: 64,
+    threshold: 56,
     ignoreAtTop: true,
   });
   const { panHandlers: listHandlers, pullDistance: listPull } = usePullToPalette({
     enabled: !paletteOpen,
     atTopRef,
     onOpen: () => setPaletteOpen(true),
-    threshold: 96,
+    threshold: 56,
     ignoreAtTop: false,
   });
   const pullDistance = Math.max(handlePull, listPull);
@@ -124,6 +124,41 @@ export default function Chats() {
     queryFn: () => api.llmConnections(),
     enabled: !!activeWorkspaceId,
   });
+  const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
+  // one-time reachability check to avoid green flash for unreachable models
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const list = (llmQuery.data as any[]) ?? [];
+    const ids = list.filter((c: any) => c.status === "ok").map((c: any) => c.id);
+    if (!ids.length) return;
+    setCheckingIds(new Set(ids));
+    let cancelled = false;
+    (async () => {
+      for (const id of ids) {
+        try {
+          const detail: any = await api.llmConnectionStatus(id);
+          if (cancelled || !detail?.connection) continue;
+          const reachable = detail.providerReachable;
+          const models: string[] | null = detail.providerModels;
+          const conn: any = detail.connection;
+          const missing = models !== null && conn?.modelId && !models.includes(conn.modelId);
+          const shouldBeError = reachable === false || conn?.status === "error" || missing;
+          const liveStatus = shouldBeError ? "error" : reachable ? "ok" : conn?.status;
+          if (liveStatus && liveStatus !== (list.find((c: any) => c.id === id) as any)?.status) {
+            queryClient.setQueryData(["llm-connections"], (prev: any) => {
+              if (!Array.isArray(prev)) return prev;
+              return prev.map((c: any) => (c.id === id ? { ...c, status: liveStatus, lastError: conn?.lastError ?? c.lastError } : c));
+            });
+          }
+        } catch {
+          // ignore
+        } finally {
+          if (!cancelled) setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [(llmQuery.data as any[])?.length]);
   const [llmOpening, setLlmOpening] = useState<string | null>(null);
   const [llmError, setLlmError] = useState<string | null>(null);
   async function openLlmDm(conn: LlmConnection) {
@@ -270,8 +305,13 @@ export default function Chats() {
                       style={[
                         rowStyles.dot,
                         {
-                          backgroundColor:
-                            conn.status === "ok" ? t.success : conn.status === "error" ? t.destructive : t.warning,
+                          backgroundColor: checkingIds.has(conn.id)
+                            ? t.warning
+                            : conn.status === "ok"
+                              ? t.success
+                              : conn.status === "error"
+                                ? t.destructive
+                                : t.warning,
                           borderColor: t.background,
                         },
                       ]}

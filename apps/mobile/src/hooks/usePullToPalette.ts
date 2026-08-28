@@ -29,13 +29,22 @@ export function usePullToPalette({ enabled, atTopRef, onOpen, threshold = 96, ig
   const panResponder = useMemo(
     () =>
       PanResponder.create({
+        onStartShouldSetPanResponderCapture: (_: GestureResponderEvent, g: PanResponderGestureState) => {
+          if (!enabled) return false;
+          if (!ignoreAtTop && !atTopRef.current) return false;
+          return g.dy > 8 && g.dy > Math.abs(g.dx) * 1.2;
+        },
         onMoveShouldSetPanResponder: (_: GestureResponderEvent, g: PanResponderGestureState) => {
           if (!enabled) return false;
           if (!ignoreAtTop && !atTopRef.current) return false;
           // only vertical pull down, not horizontal scroll
           return g.dy > 12 && g.dy > Math.abs(g.dx) * 1.2;
         },
-        onMoveShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponderCapture: (_: GestureResponderEvent, g: PanResponderGestureState) => {
+          if (!enabled) return false;
+          if (!ignoreAtTop && !atTopRef.current) return false;
+          return g.dy > 12 && g.dy > Math.abs(g.dx) * 1.2;
+        },
         onPanResponderMove: (_: GestureResponderEvent, g: PanResponderGestureState) => {
           if (g.dy > 0 && (ignoreAtTop || atTopRef.current)) {
             // clamp for visual feedback
@@ -44,7 +53,7 @@ export function usePullToPalette({ enabled, atTopRef, onOpen, threshold = 96, ig
         },
         onPanResponderRelease: handleRelease,
         onPanResponderTerminate: () => setPullDistance(0),
-        onPanResponderTerminationRequest: () => true,
+        onPanResponderTerminationRequest: () => false,
       }),
     [enabled, atTopRef, handleRelease, ignoreAtTop],
   );

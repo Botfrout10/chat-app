@@ -144,13 +144,16 @@ export function AppSidebar() {
     queryFn: () => api.llmConnections().catch(() => []),
   });
 
+  const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
   // one-time reachability sync so the sidebar dot is consistent without polling
   // (ChannelView also patches on open; this covers the “before opening any chat” case once)
+  // While checking, dot shows amber to avoid green flash for unreachable models.
   useEffect(() => {
     const list = (llmConnections as any[]) ?? [];
     if (!list.length) return;
     const idsToCheck = list.filter((c: any) => c.status === "ok").map((c: any) => c.id);
     if (!idsToCheck.length) return;
+    setCheckingIds(new Set(idsToCheck));
     let cancelled = false;
     (async () => {
       for (const id of idsToCheck) {
@@ -171,6 +174,12 @@ export function AppSidebar() {
           }
         } catch {
           // leave dot as-is on transient failure; ChannelView will handle on open
+        } finally {
+          if (!cancelled) setCheckingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
         }
       }
     })();
@@ -338,7 +347,19 @@ export function AppSidebar() {
                 <Sparkles className="h-3 w-3" />
               </span>
               <span className="truncate flex-1">{c.label}</span>
-              <span className={cn("h-2 w-2 rounded-full shrink-0", c.status === "ok" ? "bg-emerald-500" : c.status === "error" ? "bg-red-500" : "bg-amber-500")} />
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full shrink-0",
+                  checkingIds.has(c.id)
+                    ? "bg-amber-500 animate-pulse"
+                    : c.status === "ok"
+                      ? "bg-emerald-500"
+                      : c.status === "error"
+                        ? "bg-red-500"
+                        : "bg-amber-500",
+                )}
+                title={checkingIds.has(c.id) ? "Checking…" : c.status}
+              />
             </SidebarButton>
           ))}
         </CollapsibleSection>

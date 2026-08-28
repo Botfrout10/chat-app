@@ -152,7 +152,7 @@ export function CommandPalette() {
       key: `channel-${c.id}`,
       label: `# ${c.name}`,
       sub: c.type === "private" ? "private" : undefined,
-      icon: c.type === "private" ? "lock-closed" : "hash",
+      icon: c.type === "private" ? "lock-closed-outline" : "pound",
       filterValue: `channel ${c.name}`,
       onPress: () => goChannel(c.id),
     }));

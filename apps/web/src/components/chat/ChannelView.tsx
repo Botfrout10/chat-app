@@ -594,24 +594,23 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
 
   async function handlePromptSubmitQueued({ text, files }: { text: string; files: FileUIPart[] }) {
     if (!text.trim() && files.length === 0) return;
+    // keep message in input when AI offline — don't persist, just toast and restore draft
+    const restoreDraft = (msg: string) => {
+      const reason = statusConn?.lastError ? ` — ${String(statusConn.lastError).slice(0, 120)}` : providerReachable === false ? " — provider unreachable" : "";
+      toast.error(`Model offline${reason}`, { description: "Fix the model or try again — your message was kept in the composer." });
+      // PromptInput manages its own FileUIPart list; restoring text is enough to keep draft visible.
+      // Re-populate input so user doesn't lose draft.
+      setInput(text);
+    };
     if (isAiChannel && isModelOffline) {
-      const id = ulid();
-      setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
-      toast.message("Model offline — message queued", { description: `Will send automatically when ${modelId ?? "the model"} is reachable.` });
+      restoreDraft(text);
       return;
     }
     if (isAiChannel && isModelChecking) {
-      // still allow queuing while the initial reachability probe is in flight
-      // so the user isn't blocked on a 5s network round-trip
-      const id = ulid();
-      setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
-      toast.message("Checking model… message queued", { description: "Will send as soon as reachability is confirmed." });
+      toast.message("Checking model… please wait", { description: "Reachability check in progress — try again in a moment. Your draft was kept." });
+      setInput(text);
       return;
     }
-    // verify live reachability before sending — closes the gap where the model
-    // went down after the last poll but before the user hit send. Without this
-    // the *first* message after a drop would be sent into a failed generation
-    // instead of being queued.
     if (isAiChannel) {
       try {
         const fresh: any = await api.llmConnectionStatus(llmConnectionIdForChannel!);
@@ -622,15 +621,14 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         const modelMissing = models !== null && modelId != null && !models.includes(modelId);
         const freshOffline = reachable === false || status === "error" || modelMissing;
         if (freshOffline) {
-          const id = ulid();
-          setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
-          toast.message("Model offline — message queued", { description: `Will send automatically when ${modelId ?? "the model"} is reachable.` });
+          const msg = String(fresh?.connection?.lastError ?? "").slice(0, 120);
+          toast.error(`Model offline${msg ? ` — ${msg}` : ""}`, { description: "Your message was kept in the composer." });
+          setInput(text);
           return;
         }
-      } catch {
-        const id = ulid();
-        setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
-        toast.message("Model offline — message queued", { description: `Will send automatically when ${modelId ?? "the model"} is reachable.` });
+      } catch (e: any) {
+        toast.error(`Model not reachable — ${String(e?.message ?? e).slice(0, 120)}`, { description: "Your draft was kept." });
+        setInput(text);
         return;
       }
     }
@@ -648,9 +646,8 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         // will still appear as success, which is okay because fresh check already
         // verified reachability.
       } catch (e: any) {
-        const id = ulid();
-        setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
-        toast.message("Send failed — message queued", { description: String(e?.message ?? e).slice(0, 160) });
+        toast.error(`Send failed — ${String(e?.message ?? e).slice(0, 160)}`, { description: "Your draft was kept in the composer." });
+        setInput(text);
       } finally {
         setUploading(false);
       }

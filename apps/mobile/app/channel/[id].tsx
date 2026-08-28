@@ -420,10 +420,16 @@ export default function ChannelView() {
         )}
         {!!llmStream && (
           <View style={{ paddingHorizontal: 14, paddingBottom: 4 }}>
-            <Text style={{ color: t.mutedForeground, fontSize: 12, fontWeight: "600" }}>
-              <Ionicons name="sparkles" size={12} color={t.mutedForeground} /> {llmLabel ?? "AI"}{" "}
-              {llmStream.text ? "is writing…" : llmStream.thinking ? "is thinking…" : "Loading model into GPU…"}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              {llmStream.text || llmStream.thinking ? (
+                <Ionicons name="sparkles" size={12} color={t.mutedForeground} />
+              ) : (
+                <ActivityIndicator size="small" color={t.mutedForeground} />
+              )}
+              <Text style={{ color: t.mutedForeground, fontSize: 12, fontWeight: "600" }}>
+                {llmLabel ?? "AI"} {llmStream.text ? "is writing…" : llmStream.thinking ? "is thinking…" : "is preparing…"}
+              </Text>
+            </View>
             {!!llmStream.thinking && (
               <Pressable
                 accessibilityRole="button"
@@ -472,15 +478,17 @@ export default function ChannelView() {
           onSend={async (content) => {
             const isReply = composerState.kind === "reply";
             const parentId = isReply ? composerState.parentId : undefined;
-            // if AI offline, don't insert message — pull back & keep status consistent
+            // if AI offline, don't insert message — keep draft in composer
             if (isAiChannel) {
               if (isAiOffline) {
-                setSendError(`Model offline — ${statusConn?.lastError ?? "provider not reachable"}`);
-                return;
+                const msg = `Model offline — ${statusConn?.lastError ?? "provider not reachable"}`;
+                setSendError(msg);
+                throw new Error(msg);
               }
               if (isAiChecking) {
-                setSendError("Checking model reachability — please wait a moment and retry");
-                return;
+                const msg = "Checking model reachability — please wait a moment and retry";
+                setSendError(msg);
+                throw new Error(msg);
               }
               try {
                 const fresh: any = await api.llmConnectionStatus(llmConnectionIdForChannel!);
@@ -490,12 +498,16 @@ export default function ChannelView() {
                 const status = fresh?.connection?.status;
                 const missing = models !== null && modelId != null && !models.includes(modelId);
                 if (reachable === false || status === "error" || missing) {
-                  setSendError(`Model offline — ${fresh?.connection?.lastError ?? "provider not reachable"}`);
-                  return;
+                  const msg = `Model offline — ${fresh?.connection?.lastError ?? "provider not reachable"}`;
+                  setSendError(msg);
+                  throw new Error(msg);
                 }
               } catch (e: any) {
-                setSendError(e instanceof Error ? e.message : "Model not reachable");
-                return;
+                // if we already set a Model offline error above, preserve it
+                if (e instanceof Error && e.message.startsWith("Model offline")) throw e;
+                const msg = e instanceof Error ? e.message : "Model not reachable";
+                setSendError(msg);
+                throw new Error(msg);
               }
             }
             await sendMutation.mutateAsync({

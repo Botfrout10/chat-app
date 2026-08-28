@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Keyboard, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useTheme } from "@/theme/useTheme";
 import type { Message, User } from "@/types";
@@ -27,35 +28,36 @@ export function ActionSheet({
   header?: React.ReactNode;
 }) {
   const t = useTheme();
-  if (!visible) return null;
-
   return (
-    <View style={styles.backdrop}>
-      <Pressable style={styles.flex} onPress={onClose} accessibilityLabel="Dismiss menu" />
-      <View style={[styles.sheet, { backgroundColor: t.card }]}>
-        {header}
-        {actions.map((a) => (
-          <Pressable
-            key={a.key}
-            onPress={() => {
-              onClose();
-              a.onPress();
-            }}
-            style={({ pressed }) => [
-              styles.row,
-              { backgroundColor: pressed ? t.muted : "transparent" },
-            ]}
-          >
-            <Text style={[styles.label, { color: a.destructive ? t.destructive : t.foreground }]}>
-              {a.label}
-            </Text>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <View style={styles.modalBackdrop}>
+        <Pressable style={styles.flex} onPress={onClose} accessibilityLabel="Dismiss menu" />
+        <SafeAreaView edges={["bottom"]} style={[styles.sheet, { backgroundColor: t.card }]}>
+          {header}
+          {actions.map((a) => (
+            <Pressable
+              key={a.key}
+              onPress={() => {
+                onClose();
+                // small delay so modal close animation starts
+                setTimeout(a.onPress, 80);
+              }}
+              style={({ pressed }) => [
+                styles.row,
+                { backgroundColor: pressed ? t.muted : "transparent" },
+              ]}
+            >
+              <Text style={[styles.label, { color: a.destructive ? t.destructive : t.foreground }]}>
+                {a.label}
+              </Text>
+            </Pressable>
+          ))}
+          <Pressable onPress={onClose} style={[styles.row, styles.cancel]}>
+            <Text style={[styles.cancelLabel, { color: t.mutedForeground }]}>Cancel</Text>
           </Pressable>
-        ))}
-        <Pressable onPress={onClose} style={[styles.row, styles.cancel]}>
-          <Text style={[styles.cancelLabel, { color: t.mutedForeground }]}>Cancel</Text>
-        </Pressable>
+        </SafeAreaView>
       </View>
-    </View>
+    </Modal>
   );
 }
 
@@ -87,6 +89,11 @@ export function QuickReactions({
 export const QUICK_REACTIONS = ["👍", "❤️", "😂", "🎉", "👀"] as const;
 
 const styles = StyleSheet.create({
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "#00000055",
+    justifyContent: "flex-end",
+  },
   backdrop: {
     position: "absolute",
     top: 0,

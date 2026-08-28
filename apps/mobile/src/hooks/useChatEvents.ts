@@ -115,32 +115,44 @@ export function useChatEvents(enabled: boolean) {
       case "llm:typing": {
         const evt = payload as { channelId: string; connectionId: string; isTyping: boolean };
         if (evt.isTyping) setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: "", thinking: "" });
-        else clearLlmStream(evt.channelId, evt.connectionId);
+        else clearLlmStream(evt.channelId);
         break;
       }
       case "llm:thinking": {
         const evt = payload as { channelId: string; connectionId: string; delta: string };
         const cur = useChatStore.getState().llmStreams[evt.channelId];
-        if (cur?.connectionId === evt.connectionId) {
-          setLlmStream(evt.channelId, {
-            connectionId: evt.connectionId,
-            text: cur.text,
-            thinking: cur.thinking + evt.delta,
-          });
+        if (cur) {
+          if (cur.connectionId === evt.connectionId) {
+            setLlmStream(evt.channelId, {
+              connectionId: evt.connectionId,
+              text: cur.text,
+              thinking: cur.thinking + evt.delta,
+            });
+          }
+        } else {
+          // typing event missed/race — create stream with thinking
+          setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: "", thinking: evt.delta });
         }
         break;
       }
       case "llm:delta": {
         const evt = payload as { channelId: string; connectionId: string; delta: string };
         const cur = useChatStore.getState().llmStreams[evt.channelId];
-        if (cur?.connectionId === evt.connectionId) {
-          setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: cur.text + evt.delta, thinking: cur.thinking });
+        if (cur) {
+          if (cur.connectionId === evt.connectionId) {
+            setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: cur.text + evt.delta, thinking: cur.thinking });
+          } else {
+            // different connection — replace with new text
+            setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: evt.delta, thinking: cur.thinking });
+          }
+        } else {
+          setLlmStream(evt.channelId, { connectionId: evt.connectionId, text: evt.delta, thinking: "" });
         }
         break;
       }
       case "llm:error": {
         const evt = payload as { channelId: string; connectionId: string };
-        clearLlmStream(evt.channelId, evt.connectionId);
+        clearLlmStream(evt.channelId);
         break;
       }
       default:

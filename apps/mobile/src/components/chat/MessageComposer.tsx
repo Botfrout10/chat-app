@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Platform,
   Pressable,
   StyleSheet,
@@ -202,7 +203,10 @@ export function MessageComposer({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Attach file"
-            onPress={onAttach}
+            onPress={() => {
+              Keyboard.dismiss();
+              onAttach();
+            }}
             disabled={disabled || uploading}
             style={[styles.attachBtn, { backgroundColor: t.muted, opacity: uploading ? 0.5 : 1 }]}
           >
