@@ -168,6 +168,7 @@ export const llmConnection = pgTable("llm_connection", {
   provider: varchar("provider", { length: 40 }).notNull().default("openai-compatible").$type<"openai-compatible" | "anthropic">(),
   baseUrl: text("base_url").notNull(), // OpenAI-compatible base incl. version path, e.g. http://localhost:1234/v1
   modelId: text("model_id").notNull(), // model name as reported by the provider
+  apiKeyEncrypted: text("api_key_encrypted"), // AES-GCM encrypted bearer token (cloud providers); null for local
   status: varchar("status", { length: 20 }).notNull().default("unverified").$type<"unverified" | "ok" | "error">(),
   lastError: text("last_error"),
   capabilities: jsonb("capabilities"), // provider-reported extras (context length, tools, vision…)

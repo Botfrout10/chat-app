@@ -12,6 +12,7 @@ export const env = {
     .filter(Boolean),
   BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET ?? "dev-secret-change-me-32-chars-min",
   BETTER_AUTH_URL: process.env.BETTER_AUTH_URL ?? "http://localhost:3001",
+  LLM_KEY_ENCRYPTION_KEY: process.env.LLM_KEY_ENCRYPTION_KEY ?? process.env.BETTER_AUTH_SECRET ?? "dev-secret-change-me-32-chars-min",
   S3_ENDPOINT: process.env.S3_ENDPOINT ?? "http://localhost:9000",
   S3_REGION: process.env.S3_REGION ?? "us-east-1",
   S3_ACCESS_KEY_ID: process.env.S3_ACCESS_KEY_ID ?? "minioadmin",

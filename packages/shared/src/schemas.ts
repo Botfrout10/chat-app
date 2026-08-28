@@ -69,6 +69,9 @@ export const createLlmConnectionSchema = z.object({
   modelId: z.string().min(1).max(200),
   // @token used to mention the model; defaults to slugified label
   mentionName: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/).optional(),
+  // OpenAI-compatible bearer token for cloud providers (e.g. OpenAI, Groq, OpenRouter)
+  // sent server-side only; never returned in GET responses
+  apiKey: z.string().min(1).max(500).optional(),
 });
 
 export const updateLlmConnectionSchema = createLlmConnectionSchema.partial();

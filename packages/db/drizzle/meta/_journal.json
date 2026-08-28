@@ -50,6 +50,13 @@
       "when": 1787840342608,
       "tag": "0006_quick_moon_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787945581957,
+      "tag": "0007_mellow_moon_knight",
+      "breakpoints": true
     }
   ]
 }
