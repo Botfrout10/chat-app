@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import { bearer } from "better-auth/plugins";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { getDb } from "@chat/db";
 import { env } from "./env.js";
@@ -21,6 +22,7 @@ export function createAuth() {
     baseURL: env.BETTER_AUTH_URL,
     trustedOrigins: [env.WEB_URL, env.API_URL, "http://localhost:3000", ...env.EXTRA_ORIGINS],
     session: { cookieCache: { enabled: true } },
+    plugins: [bearer()],
     advanced: {
       crossSubDomainCookies: { enabled: false },
     },

@@ -35,12 +35,13 @@ export default function Chats() {
   const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
   const uiDialog = useUiStore((s) => s.dialog);
   const closeUiDialog = useUiStore((s) => s.closeDialog);
+  const openDialog = useUiStore((s) => s.openDialog);
 
   // bridge palette dialog → local modal (keeps existing modal UI)
   useEffect(() => {
     if (uiDialog === "createWorkspace") setModal("workspace");
     else if (uiDialog === "createChannel") setModal("channel");
-    else if (uiDialog === "newDm" || uiDialog === "inviteMember") setModal("dm");
+    else if (uiDialog === "newDm") setModal("dm");
   }, [uiDialog]);
 
   function closeModal() {
@@ -178,6 +179,11 @@ export default function Chats() {
 
   const activeWs = workspacesQuery.data?.find((w) => w.id === activeWorkspaceId);
 
+  const hasWorkspaces = (workspacesQuery.data?.length ?? 0) > 0;
+  const isWorkspacesLoading = workspacesQuery.isPending;
+  const showEmptyWorkspace = !isWorkspacesLoading && !hasWorkspaces;
+  const showWorkspaceInitializing = hasWorkspaces && !activeWorkspaceId;
+
   function openChannel(c: Channel) {
     router.push({
       pathname: "/channel/[id]",
@@ -238,126 +244,161 @@ export default function Chats() {
         </View>
       </View>
 
-      {/* drag handle for palette — pull here, list pull stays as refresh */}
-      <View {...dragHandlers} style={styles.dragHandle}>
-        <View style={[styles.dragPill, { backgroundColor: t.border }]} />
-        {pullDistance > 0 && (
-          <View style={[styles.pullHint, { backgroundColor: t.muted, borderColor: t.border }]}>
-            <Ionicons name={pullDistance > 56 ? "sparkles" : "chevron-down"} size={14} color={t.primary} />
-            <Text style={[styles.pullHintText, { color: t.primary }]}>
-              {pullDistance > 56 ? "Release to open palette" : "Pull down for palette"}
-            </Text>
+      {isWorkspacesLoading || showWorkspaceInitializing ? (
+        <View style={styles.centered}>
+          <ActivityIndicator color={t.primary} />
+          <Text style={{ color: t.mutedForeground, fontSize: 13, marginTop: 10 }}>Loading workspaces…</Text>
+        </View>
+      ) : showEmptyWorkspace ? (
+        <View style={styles.emptyWorkspaceWrap}>
+          <View style={[styles.emptyIconWrap, { backgroundColor: t.accent100, borderColor: t.border }]}>
+            <Ionicons name="business-outline" size={32} color={t.accent700} />
           </View>
-        )}
-      </View>
+          <Text style={[styles.emptyTitle, { color: t.foreground }]}>No workspace yet</Text>
+          <Text style={[styles.emptySubtitle, { color: t.mutedForeground }]}>
+            Create your first workspace to start chatting with your team.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setModal("workspace")}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              { backgroundColor: t.primary, paddingHorizontal: 24, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Text style={[styles.primaryBtnText, { color: t.primaryForeground }]}>Create workspace</Text>
+          </Pressable>
+          {workspacesQuery.isError && (
+            <Pressable onPress={() => workspacesQuery.refetch()} style={{ marginTop: 8, padding: 6 }}>
+              <Text style={{ color: t.primary, fontSize: 13, fontWeight: "600" }}>Retry</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : (
+        <>
+          {/* drag handle for palette — pull here, list pull stays as refresh */}
+          <View {...dragHandlers} style={styles.dragHandle}>
+            <View style={[styles.dragPill, { backgroundColor: t.border }]} />
+            {pullDistance > 0 && (
+              <View style={[styles.pullHint, { backgroundColor: t.muted, borderColor: t.border }]}>
+                <Ionicons name={pullDistance > 56 ? "sparkles" : "chevron-down"} size={14} color={t.primary} />
+                <Text style={[styles.pullHintText, { color: t.primary }]}>
+                  {pullDistance > 56 ? "Release to open palette" : "Pull down for palette"}
+                </Text>
+              </View>
+            )}
+          </View>
 
-      {(channelsQuery.isPending || workspacesQuery.isPending) && (
-        <ActivityIndicator style={{ marginTop: 24 }} color={t.primary} />
-      )}
-
-      <View style={{ flex: 1 }} {...listHandlers}>
-        <FlatList
-          onScroll={(e) => {
-            atTopRef.current = e.nativeEvent.contentOffset.y <= 4;
-          }}
-          scrollEventThrottle={16}
-          data={[{ kind: "channels" as const }, { kind: "models" as const }, { kind: "dms" as const }]}
-          keyExtractor={(item) => item.kind}
-          renderItem={({ item }) =>
-          item.kind === "channels" ? (
-            <Section
-              title={`Channels${channelList.length ? ` — ${channelList.length}` : ""}`}
-              actionLabel="New"
-              onAction={() => setModal("channel")}
-              collapsed={collapsed.channels}
-              onToggle={() => toggle("channels")}
-            >
-              {!collapsed.channels && channelList.map((c) => (
-                <Row
-                  key={c.id}
-                  channel={c}
-                  unread={unreadByChannel[c.id] ?? 0}
-                  online={false}
-                  onPress={() => openChannel(c)}
-                />
-              ))}
-              {!collapsed.channels && !channelList.length && !channelsQuery.isPending && <Empty text="No channels yet" />}
-            </Section>
-          ) : item.kind === "models" ? (
-            <Section
-              title="AI models"
-              actionLabel="Add model"
-              onAction={() => router.push("/(tabs)/settings")}
-              collapsed={collapsed.models}
-              onToggle={() => toggle("models")}
-            >
-              {!collapsed.models && (llmQuery.data ?? []).map((conn) => (
-                <Pressable
-                  key={conn.id}
-                  disabled={llmOpening === conn.id}
-                  onPress={() => openLlmDm(conn)}
-                  style={({ pressed }) => [styles.row, { opacity: pressed || llmOpening === conn.id ? 0.6 : 1 }]}
+          <View style={{ flex: 1 }} {...listHandlers}>
+            <FlatList
+              onScroll={(e) => {
+                atTopRef.current = e.nativeEvent.contentOffset.y <= 4;
+              }}
+              scrollEventThrottle={16}
+              data={[{ kind: "channels" as const }, { kind: "models" as const }, { kind: "dms" as const }]}
+              keyExtractor={(item) => item.kind}
+              renderItem={({ item }) =>
+              item.kind === "channels" ? (
+                <Section
+                  title={`Channels${channelList.length ? ` — ${channelList.length}` : ""}`}
+                  actionLabel="New"
+                  onAction={() => setModal("channel")}
+                  collapsed={collapsed.channels}
+                  onToggle={() => toggle("channels")}
                 >
-                  <View style={[rowStyles.hashWrap, { backgroundColor: t.accent100 }]}>
-                    <Ionicons name="sparkles" size={14} color={t.accent700} />
-                  </View>
-                  <Text style={[styles.rowTitle, { color: t.foreground, flex: 1 }]} numberOfLines={1}>
-                    {conn.label}
-                  </Text>
-                  {llmOpening === conn.id ? (
-                    <ActivityIndicator color={t.primary} size="small" />
-                  ) : (
-                    <View
-                      style={[
-                        rowStyles.dot,
-                        {
-                          backgroundColor: checkingIds.has(conn.id)
-                            ? t.warning
-                            : conn.status === "ok"
-                              ? t.success
-                              : conn.status === "error"
-                                ? t.destructive
-                                : t.warning,
-                          borderColor: t.background,
-                        },
-                      ]}
+                  {!collapsed.channels && channelList.map((c) => (
+                    <Row
+                      key={c.id}
+                      channel={c}
+                      unread={unreadByChannel[c.id] ?? 0}
+                      online={false}
+                      onPress={() => openChannel(c)}
                     />
+                  ))}
+                  {!collapsed.channels && !channelList.length && !channelsQuery.isPending && <Empty text="No channels yet" />}
+                  {!collapsed.channels && channelsQuery.isPending && (
+                    <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
+                      <ActivityIndicator color={t.primary} size="small" />
+                    </View>
                   )}
-                </Pressable>
-              ))}
-              {!collapsed.models && !llmQuery.isPending && !(llmQuery.data ?? []).length && (
-                <Empty text="No models connected — connect one on web" />
-              )}
-              {!collapsed.models && !!llmError && (
-                <Text style={{ color: t.destructive, fontSize: 12, paddingHorizontal: 16 }}>{llmError}</Text>
-              )}
-            </Section>
-          ) : (
-            <Section
-              title={`Direct messages${dmList.length ? ` — ${dmList.length}` : ""}`}
-              actionLabel="Add friend"
-              onAction={() => setModal("dm")}
-              collapsed={collapsed.dms}
-              onToggle={() => toggle("dms")}
-            >
-              {!collapsed.dms && dmList.map((c) => (
-                <Row
-                  key={c.id}
-                  channel={c}
-                  unread={unreadByChannel[c.id] ?? 0}
-                  online={presence[peerOf(c) ?? ""] === "online"}
-                  onPress={() => openChannel(c)}
-                />
-              ))}
-              {!collapsed.dms && !dmList.length && !globalDmsQuery.isPending && (
-                <Empty text="No friends yet. Add a friend to start." />
-              )}
-            </Section>
-          )
-        }
-          contentContainerStyle={{ paddingBottom: 24 }}
-        />
-      </View>
+                </Section>
+              ) : item.kind === "models" ? (
+                <Section
+                  title="AI models"
+                  actionLabel="Manage"
+                  onAction={() => openDialog("llmManager")}
+                  collapsed={collapsed.models}
+                  onToggle={() => toggle("models")}
+                >
+                  {!collapsed.models && (llmQuery.data ?? []).map((conn) => (
+                    <Pressable
+                      key={conn.id}
+                      disabled={llmOpening === conn.id}
+                      onPress={() => openLlmDm(conn)}
+                      style={({ pressed }) => [styles.row, { opacity: pressed || llmOpening === conn.id ? 0.6 : 1 }]}
+                    >
+                      <View style={[rowStyles.hashWrap, { backgroundColor: t.accent100 }]}>
+                        <Ionicons name="sparkles" size={14} color={t.accent700} />
+                      </View>
+                      <Text style={[styles.rowTitle, { color: t.foreground, flex: 1 }]} numberOfLines={1}>
+                        {conn.label}
+                      </Text>
+                      {llmOpening === conn.id ? (
+                        <ActivityIndicator color={t.primary} size="small" />
+                      ) : (
+                        <View
+                          style={[
+                            rowStyles.dot,
+                            {
+                              backgroundColor: checkingIds.has(conn.id)
+                                ? t.warning
+                                : conn.status === "ok"
+                                  ? t.success
+                                  : conn.status === "error"
+                                    ? t.destructive
+                                    : t.warning,
+                              borderColor: t.background,
+                            },
+                          ]}
+                        />
+                      )}
+                    </Pressable>
+                  ))}
+                  {!collapsed.models && !llmQuery.isPending && !(llmQuery.data ?? []).length && (
+                    <Empty text="No models connected — tap Manage to add one" />
+                  )}
+                  {!collapsed.models && !!llmError && (
+                    <Text style={{ color: t.destructive, fontSize: 12, paddingHorizontal: 16 }}>{llmError}</Text>
+                  )}
+                </Section>
+              ) : (
+                <Section
+                  title={`Direct messages${dmList.length ? ` — ${dmList.length}` : ""}`}
+                  actionLabel="Add friend"
+                  onAction={() => setModal("dm")}
+                  collapsed={collapsed.dms}
+                  onToggle={() => toggle("dms")}
+                >
+                  {!collapsed.dms && dmList.map((c) => (
+                    <Row
+                      key={c.id}
+                      channel={c}
+                      unread={unreadByChannel[c.id] ?? 0}
+                      online={presence[peerOf(c) ?? ""] === "online"}
+                      onPress={() => openChannel(c)}
+                    />
+                  ))}
+                  {!collapsed.dms && !dmList.length && !globalDmsQuery.isPending && (
+                    <Empty text="No friends yet. Add a friend to start." />
+                  )}
+                </Section>
+              )
+            }
+              contentContainerStyle={{ paddingBottom: 24 }}
+            />
+          </View>
+        </>
+      )}
 
       {/* workspace switcher */}
       <Modal
@@ -904,6 +945,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  centered: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingTop: 32,
+  },
+  emptyWorkspaceWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    paddingBottom: 48,
+    gap: 12,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    marginBottom: 4,
+  },
+  emptyTitle: { fontSize: 20, fontWeight: "800", textAlign: "center" },
+  emptySubtitle: { fontSize: 14, textAlign: "center", lineHeight: 20, marginBottom: 8 },
 });
 
 const rowStyles = StyleSheet.create({

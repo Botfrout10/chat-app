@@ -243,7 +243,7 @@ export function CommandPalette() {
         filterValue: "invite add member people",
         onPress: () => {
           close();
-          setTimeout(() => openDialog("newDm"), 100);
+          setTimeout(() => openDialog("inviteMember"), 100);
         },
       },
       {
@@ -253,7 +253,7 @@ export function CommandPalette() {
         filterValue: "connect ai model llm manage",
         onPress: () => {
           close();
-          // mobile has no manager yet — keep discoverability text inside modal
+          setTimeout(() => openDialog("llmManager"), 100);
         },
       },
     ];

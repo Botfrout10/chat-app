@@ -1,35 +1,29 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
-import { useState } from "react";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/api/client";
 import { useMe } from "@/hooks/queries";
 import { useSession } from "@/lib/session";
 import { useTheme } from "@/theme/useTheme";
 import { useUiStore, type ThemeMode } from "@/stores/ui";
-import type { LlmConnection } from "@/types";
 
 export default function Settings() {
   const t = useTheme();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { token, signOut } = useSession();
   const meQuery = useMe(!!token);
   const insets = useSafeAreaInsets();
+  const openDialog = useUiStore((s) => s.openDialog);
 
   async function handleSignOut() {
     await signOut();
@@ -74,7 +68,26 @@ export default function Settings() {
 
         <ThemeRow />
 
-        {!!token && <LlmManager />}
+        {!!token && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => openDialog("llmManager")}
+            style={({ pressed }) => [styles.cardCol, { backgroundColor: t.card, borderColor: t.border, opacity: pressed ? 0.85 : 1 }]}
+          >
+            <View style={styles.sectionHeader}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View style={[styles.llmIcon, { backgroundColor: t.accent100 }]}>
+                  <Ionicons name="hardware-chip-outline" size={16} color={t.accent700} />
+                </View>
+                <View>
+                  <Text style={[styles.rowTitle2, { color: t.foreground }]}>AI models</Text>
+                  <Text style={{ color: t.mutedForeground, fontSize: 12 }}>Connect & manage OpenAI-compatible endpoints</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={t.mutedForeground} />
+            </View>
+          </Pressable>
+        )}
 
         <Pressable
           accessibilityRole="button"
@@ -132,180 +145,6 @@ function ThemeRow() {
   );
 }
 
-/** Connect / remove personal OpenAI-compatible model endpoints. */
-function LlmManager() {
-  const t = useTheme();
-  const queryClient = useQueryClient();
-  const listQuery = useQuery({ queryKey: ["llm-connections"], queryFn: () => api.llmConnections() });
-  const [showForm, setShowForm] = useState(false);
-  const [label, setLabel] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [modelId, setModelId] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  function invalidate() {
-    queryClient.invalidateQueries({ queryKey: ["llm-connections"] });
-  }
-
-  const createMutation = useMutation({
-    mutationFn: (vars: { label: string; baseUrl: string; modelId: string; apiKey?: string }) => api.createLlmConnection(vars),
-    onSuccess: () => {
-      setLabel("");
-      setBaseUrl("");
-      setModelId("");
-      setApiKey("");
-      setError(null);
-      setShowForm(false);
-      invalidate();
-    },
-    onError: (e) => setError(e instanceof Error ? e.message.slice(0, 200) : "Failed to connect model"),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.deleteLlmConnection(id),
-    onSuccess: invalidate,
-    onError: (e) => Alert.alert("Delete failed", e instanceof Error ? e.message : "Unknown error"),
-  });
-
-  function confirmDelete(conn: LlmConnection) {
-    Alert.alert("Remove model", `Disconnect "${conn.label}"?`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: () => deleteMutation.mutate(conn.id) },
-    ]);
-  }
-
-  function normalizeBaseUrl(raw: string): string {
-    let s = raw.trim();
-    if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
-    return s;
-  }
-
-  function submit() {
-    setError(null);
-    if (!label.trim() || !baseUrl.trim() || !modelId.trim()) {
-      setError("All fields are required");
-      return;
-    }
-    const normalized = normalizeBaseUrl(baseUrl);
-    try {
-      new URL(normalized);
-    } catch {
-      setError("Base URL is not valid. Include http://");
-      return;
-    }
-    if (normalized !== baseUrl) setBaseUrl(normalized);
-    createMutation.mutate({
-      label: label.trim(),
-      baseUrl: normalized,
-      modelId: modelId.trim(),
-      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-    });
-  }
-
-  const conns = listQuery.data ?? [];
-
-  return (
-    <View style={[styles.cardCol, { backgroundColor: t.card, borderColor: t.border }]}>
-      <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: t.mutedForeground }]}>AI MODELS</Text>
-        <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setShowForm((v) => !v)}>
-          <Ionicons name={showForm ? "close" : "add-circle-outline"} size={22} color={t.primary} />
-        </Pressable>
-      </View>
-
-      {showForm && (
-        <View style={{ gap: 8 }}>
-          <TextInput
-            style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground }]}
-            placeholder="Label (e.g. My LM Studio)"
-            placeholderTextColor={t.mutedForeground}
-            value={label}
-            onChangeText={setLabel}
-          />
-          <TextInput
-            style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground }]}
-            placeholder="Base URL (e.g. http://192.168.1.93:1234)"
-            placeholderTextColor={t.mutedForeground}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            value={baseUrl}
-            onChangeText={setBaseUrl}
-          />
-          <TextInput
-            style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground }]}
-            placeholder="Model ID (as reported by the provider)"
-            placeholderTextColor={t.mutedForeground}
-            autoCapitalize="none"
-            autoCorrect={false}
-            value={modelId}
-            onChangeText={setModelId}
-          />
-          <TextInput
-            style={[styles.input, { backgroundColor: t.input, borderColor: t.inputBorder, color: t.foreground }]}
-            placeholder="API key (for cloud, blank for local)"
-            placeholderTextColor={t.mutedForeground}
-            autoCapitalize="none"
-            autoCorrect={false}
-            secureTextEntry
-            value={apiKey}
-            onChangeText={setApiKey}
-          />
-          {!!error && <Text style={{ color: t.destructive, fontSize: 12 }}>{error}</Text>}
-          <Pressable
-            accessibilityRole="button"
-            disabled={createMutation.isPending}
-            onPress={submit}
-            style={({ pressed }) => [
-              styles.connectBtn,
-              { backgroundColor: t.primary, opacity: pressed || createMutation.isPending ? 0.8 : 1 },
-            ]}
-          >
-            {createMutation.isPending ? (
-              <ActivityIndicator color={t.primaryForeground} size="small" />
-            ) : (
-              <Text style={[styles.connectBtnText, { color: t.primaryForeground }]}>Connect & verify</Text>
-            )}
-          </Pressable>
-        </View>
-      )}
-
-      {listQuery.isPending && <ActivityIndicator color={t.primary} />}
-      {!listQuery.isPending && !conns.length && !showForm && (
-        <Text style={{ color: t.mutedForeground, fontSize: 13 }}>
-          No models connected — tap + to add an OpenAI-compatible endpoint.
-        </Text>
-      )}
-      {conns.map((conn) => (
-        <View key={conn.id} style={styles.connRow}>
-          <View
-            style={[
-              styles.statusDot,
-              {
-                backgroundColor:
-                  conn.status === "ok" ? t.success : conn.status === "error" ? t.destructive : t.warning,
-              },
-            ]}
-          />
-          <View style={styles.flex}>
-            <Text style={[styles.rowTitle2, { color: t.foreground }]} numberOfLines={1}>
-              {conn.label}
-            </Text>
-            <Text style={{ color: t.mutedForeground, fontSize: 12 }} numberOfLines={1}>
-              {conn.modelId}
-              {conn.status === "error" && !!conn.lastError ? ` — ${conn.lastError}` : ""}
-            </Text>
-          </View>
-          <Pressable accessibilityRole="button" hitSlop={8} onPress={() => confirmDelete(conn)}>
-            <Ionicons name="trash-outline" size={18} color={t.destructive} />
-          </Pressable>
-        </View>
-      ))}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { padding: 16, gap: 16 },
@@ -357,6 +196,7 @@ const styles = StyleSheet.create({
   connRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
   rowTitle2: { fontSize: 14, fontWeight: "600" },
+  llmIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   segBtn: {
     flex: 1,
     flexDirection: "row",

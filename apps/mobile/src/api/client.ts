@@ -119,17 +119,58 @@ async function req<T = unknown>(path: string, opts: RequestInit = {}): Promise<T
 type AttachmentMeta = { key: string; filename: string; mime: string; size: number };
 
 export const api = {
-  // auth (Better-Auth; sign-in/up responses include the session token)
-  authSignUp: (email: string, password: string, name: string) =>
-    req<{ token: string; user: User }>("/api/auth/sign-up/email", {
+  // auth (Better-Auth + bearer plugin: token is in `set-auth-token` header, not just body)
+  authSignUp: async (email: string, password: string, name: string) => {
+    const res = await fetch(`${API_URL}/api/auth/sign-up/email`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password, name }),
-    }),
-  authSignIn: (email: string, password: string) =>
-    req<{ token: string; user: User }>("/api/auth/sign-in/email", {
+    });
+    const headerToken =
+      res.headers.get("set-auth-token") ?? res.headers.get("Set-Auth-Token") ?? res.headers.get("set_auth_token");
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = text || `Request failed ${res.status}`;
+      try {
+        const p = JSON.parse(text);
+        msg = p?.error ?? p?.message ?? msg;
+      } catch {}
+      throw new ApiError(res.status, msg);
+    }
+    let parsed: any = {};
+    try { parsed = JSON.parse(text); } catch {}
+    const bodyToken = parsed?.token ?? parsed?.session?.token ?? parsed?.data?.token;
+    const token = headerToken ?? bodyToken;
+    if (!token) throw new ApiError(res.status, "No session token in response");
+    const user: User = parsed?.user ?? parsed?.data?.user ?? parsed;
+    return { token: String(token), user };
+  },
+  authSignIn: async (email: string, password: string) => {
+    const res = await fetch(`${API_URL}/api/auth/sign-in/email`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
-    }),
+    });
+    const headerToken =
+      res.headers.get("set-auth-token") ?? res.headers.get("Set-Auth-Token") ?? res.headers.get("set_auth_token");
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = text || `Request failed ${res.status}`;
+      try {
+        const p = JSON.parse(text);
+        msg = p?.error ?? p?.message ?? msg;
+        if (p?.code === "INVALID_EMAIL_OR_PASSWORD") msg = "Invalid email or password";
+      } catch {}
+      throw new ApiError(res.status, msg);
+    }
+    let parsed: any = {};
+    try { parsed = JSON.parse(text); } catch {}
+    const bodyToken = parsed?.token ?? parsed?.session?.token ?? parsed?.data?.token;
+    const token = headerToken ?? bodyToken;
+    if (!token) throw new ApiError(res.status, "No session token in response");
+    const user: User = parsed?.user ?? parsed?.data?.user ?? parsed;
+    return { token: String(token), user };
+  },
   authSignOut: () => req("/api/auth/sign-out", { method: "POST", body: JSON.stringify({}) }),
 
   // users

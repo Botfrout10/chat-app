@@ -76,25 +76,45 @@ app.all("/api/auth/*", async (req, reply) => {
   return reply.send(text);
 });
 
-// helper to get session user
+// helper to get session user — supports cookie (web), bearer header (mobile fetch),
+// and ?token= query (mobile <Image> / downloadAsync where headers are stripped on Android).
+// We try header/cookie first, then fall back to query token even if a (potentially stale)
+// header was present, so a single bad header doesn't mask a good query token.
 async function getSessionUser(req: any) {
-  const headers = new Headers();
-  if (req.headers.cookie) headers.set("cookie", req.headers.cookie);
-  if (req.headers.authorization) headers.set("authorization", req.headers.authorization as string);
-  // Mobile <Image> cannot set Authorization header — allow ?token= bearer for
-  // attachment proxy fetches (GET /api/attachments/:key/raw). Query param is only
-  // checked here so image/file previews can authenticate without custom headers.
-  if (!req.headers.authorization && req.query?.token) {
-    headers.set("authorization", `Bearer ${String(req.query.token)}`);
-  } else if (!req.headers.authorization && req.url?.includes("token=")) {
+  const trySession = async (h: Headers) => {
+    try {
+      const s = await auth.api.getSession({ headers: h });
+      return s;
+    } catch {
+      return null;
+    }
+  };
+
+  // 1) cookie + Authorization header (web + mobile fetch)
+  const h1 = new Headers();
+  if (req.headers.cookie) h1.set("cookie", req.headers.cookie as string);
+  if (req.headers.authorization) h1.set("authorization", req.headers.authorization as string);
+  let session = await trySession(h1);
+  if (session?.user) return session.user;
+
+  // 2) ?token= query (Image / downloadAsync fallback) — try even if header existed but failed
+  let qToken: string | null = null;
+  if (req.query?.token) qToken = String(req.query.token);
+  else if (req.url?.includes("token=")) {
     try {
       const u = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
-      const t = u.searchParams.get("token");
-      if (t) headers.set("authorization", `Bearer ${t}`);
+      qToken = u.searchParams.get("token");
     } catch {}
   }
-  const session = await auth.api.getSession({ headers });
-  return session?.user ?? null;
+  if (qToken) {
+    const h2 = new Headers();
+    if (req.headers.cookie) h2.set("cookie", req.headers.cookie as string);
+    h2.set("authorization", `Bearer ${qToken}`);
+    session = await trySession(h2);
+    if (session?.user) return session.user;
+  }
+
+  return null;
 }
 
 // decorate

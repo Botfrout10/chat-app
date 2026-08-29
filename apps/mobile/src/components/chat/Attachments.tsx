@@ -5,14 +5,20 @@ import { useState } from "react";
 import * as FileSystemLegacy from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 
-import { api, API_URL, rewriteAssetUrl } from "@/api/client";
+import { API_URL } from "@/api/client";
 import { loadToken, useSession } from "@/lib/session";
 import { useTheme } from "@/theme/useTheme";
 import type { Attachment } from "@/types";
 
 const IMAGE_RE = /^image\//;
 
-/** Proxied raw via API — uses Authorization header (more reliable than ?token for Image). */
+/**
+ * Proxied raw via API — web uses cookies, mobile uses bearer.
+ * React-Native <Image> on Android (Fresco) ignores custom `headers`, and some
+ * expo-file-system versions strip them, so we send BOTH: ?token= in the URL
+ * (required for Android) and Authorization header (used on iOS/web).
+ * Server `getSessionUser` in apps/api/src/index.ts:81 accepts either.
+ */
 export function useSignedUrl(key: string | null) {
   const { token } = useSession();
   return useQuery<{ uri: string; headers: Record<string, string> }>({
@@ -20,7 +26,8 @@ export function useSignedUrl(key: string | null) {
     queryFn: async () => {
       const t = token ?? (await loadToken());
       const base = `${API_URL}/api/attachments/${encodeURIComponent(key!)}/raw`;
-      return { uri: base, headers: t ? { Authorization: `Bearer ${t}` } : ({} as Record<string, string>) };
+      const uri = t ? `${base}?token=${encodeURIComponent(t)}` : base;
+      return { uri, headers: t ? { Authorization: `Bearer ${t}` } : ({} as Record<string, string>) };
     },
     enabled: !!key,
     staleTime: 5 * 60 * 1000,
@@ -141,9 +148,46 @@ function AttachmentFile({ attachment, onOpen }: { attachment: Attachment; onOpen
 
 async function downloadAndOpen(uri: string, filename: string, mime: string, headers?: Record<string, string>) {
   try {
+    // sanitize filename for local FS (no path separators)
+    const safeName = filename.replace(/[\\/]/g, "_") || "file";
     const cacheDir = (FileSystemLegacy as any).cacheDirectory as string | null;
-    const target = cacheDir ? `${cacheDir}${filename}` : filename;
-    const dl = await (FileSystemLegacy as any).downloadAsync(uri, target, { headers: headers ?? {} });
+    const target = cacheDir ? `${cacheDir}${safeName}` : safeName;
+    const dl: any = await (FileSystemLegacy as any).downloadAsync(uri, target, { headers: headers ?? {} });
+    // dl = { uri, status, headers, md5 } — if server returned 401 JSON, dl.status is 401
+    // and the file on disk contains {"error":"Unauthorized"} which Adobe would call "damaged".
+    if (typeof dl?.status === "number" && (dl.status < 200 || dl.status >= 300)) {
+      // try to read the JSON error body that was saved as the file
+      let body = "";
+      try {
+        body = await (FileSystemLegacy as any).readAsStringAsync(dl.uri);
+      } catch {}
+      let msg = body || `Request failed ${dl.status}`;
+      try {
+        const parsed = JSON.parse(body);
+        msg = parsed?.error ?? parsed?.message ?? msg;
+      } catch {}
+      // clean up the bogus file so re-download can succeed
+      try {
+        await (FileSystemLegacy as any).deleteAsync(dl.uri, { idempotent: true });
+      } catch {}
+      throw new Error(msg.slice(0, 200) || `Download failed (${dl.status})`);
+    }
+    const ct = dl?.headers?.["Content-Type"] ?? dl?.headers?.["content-type"] ?? "";
+    if (ct.includes("application/json")) {
+      let body = "";
+      try {
+        body = await (FileSystemLegacy as any).readAsStringAsync(dl.uri);
+      } catch {}
+      try {
+        const parsed = JSON.parse(body);
+        const err = parsed?.error ?? parsed?.message ?? body;
+        if (err) throw new Error(String(err).slice(0, 200));
+      } catch (e) {
+        if (e instanceof Error && !body.includes("error")) throw e;
+        if (body) throw new Error(body.slice(0, 200));
+      }
+      throw new Error("Download returned unexpected JSON — not a file");
+    }
     const available = await Sharing.isAvailableAsync();
     if (available) {
       await Sharing.shareAsync(dl.uri, { mimeType: mime, dialogTitle: filename, UTI: mime });

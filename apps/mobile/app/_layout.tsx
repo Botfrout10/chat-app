@@ -5,10 +5,13 @@ import { useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { CommandPalette } from "@/components/chat/CommandPalette";
+import { InviteMemberModal } from "@/components/chat/InviteMemberModal";
+import { LlmManagerModal } from "@/components/chat/LlmManagerModal";
 import { useChatEvents } from "@/hooks/useChatEvents";
 import { SessionProvider } from "@/lib/sessionProvider";
 import { useSession } from "@/lib/session";
 import { themeStorage } from "@/lib/themeStorage";
+import { useChatStore } from "@/stores/chat";
 import { useTheme } from "@/theme/useTheme";
 import { useUiStore } from "@/stores/ui";
 
@@ -34,6 +37,18 @@ function ThemeBridge() {
     });
   }, [setTheme]);
   return null;
+}
+
+function GlobalDialogs() {
+  const dialog = useUiStore((s) => s.dialog);
+  const close = useUiStore((s) => s.closeDialog);
+  const activeWorkspaceId = useChatStore((s) => s.activeWorkspaceId);
+  return (
+    <>
+      <InviteMemberModal visible={dialog === "inviteMember"} workspaceId={activeWorkspaceId} onClose={close} />
+      <LlmManagerModal visible={dialog === "llmManager"} onClose={close} />
+    </>
+  );
 }
 
 function RootStack() {
@@ -62,6 +77,7 @@ export default function RootLayout() {
           <EventBridge />
           <ThemeBridge />
           <CommandPalette />
+          <GlobalDialogs />
           <RootStack />
         </SessionProvider>
       </QueryClientProvider>
