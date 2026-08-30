@@ -284,12 +284,55 @@ export async function triggerAgentReply(
   }
 }
 
-// helper to trigger from a channel message (future: @agent mention)
+// helper to trigger from a channel message: DM auto-reply + @name mention
 export async function maybeTriggerAgent(
   app: FastifyInstance,
   args: { channel: typeof channel.$inferSelect; senderId: string; content: string; messageId: string },
 ) {
-  // For now agents are explicit — triggered via POST /api/agents/:id/prompt, not auto on mention.
-  // Keep hook for future mention-based dispatch; no-op.
-  void args;
+  try {
+    const db = (app as any).db;
+    const agents: AgentRow[] = await db.select().from(agentRegistration).where(eq(agentRegistration.ownerId, args.senderId));
+    if (!agents.length) return;
+    const byBot = new Map<string, AgentRow>();
+    for (const a of agents) {
+      const bot = await ensureAgentBotUser(app, a);
+      byBot.set(bot.id, a);
+    }
+    // DM auto-reply: peer is agent bot
+    if (args.channel.type === "dm") {
+      const members = await db.select({ userId: channelMember.userId }).from(channelMember).where(eq(channelMember.channelId, args.channel.id));
+      const peer = members.find((m: any) => m.userId !== args.senderId);
+      if (peer && byBot.has(peer.userId)) {
+        void triggerAgentReply(app, { agent: byBot.get(peer.userId)!, channelId: args.channel.id, promptMessageId: args.messageId });
+        return;
+      }
+    }
+    // @mention: match slugified agent names (like @opencode-on-macbook) or raw name lowercased
+    const tokens = new Set((args.content.match(/@([\p{L}\p{N}_.-]+)/gu) ?? []).map((t) => t.slice(1).toLowerCase()));
+    if (!tokens.size) return;
+    const { slugify } = await import("@chat/shared/utils");
+    for (const agent of agents) {
+      const slug = slugify(agent.name).toLowerCase();
+      const raw = agent.name.toLowerCase();
+      if ((slug && tokens.has(slug)) || (raw && tokens.has(raw)) || tokens.has(agent.name.toLowerCase().replace(/\s+/g, "-"))) {
+        void triggerAgentReply(app, { agent, channelId: args.channel.id, promptMessageId: args.messageId });
+      }
+    }
+  } catch (e) {
+    (app as any).log?.error?.(`maybeTriggerAgent failed: ${(e as Error).message}`);
+  }
+}
+
+export async function findOrCreateAgentDm(app: FastifyInstance, agent: AgentRow, userId: string, workspaceId: string) {
+  const db = (app as any).db;
+  const bot = await ensureAgentBotUser(app, agent);
+  const { createHash } = await import("node:crypto");
+  const pair = [userId, bot.id].sort().join(":");
+  const name = `dm-${createHash("sha1").update(pair).digest("hex").slice(0, 12)}`;
+  const [existing] = await db.select().from(channel).where(and(eq(channel.workspaceId, workspaceId), eq(channel.type, "dm"), eq(channel.name, name)));
+  if (existing) return { ...existing, created: false };
+  const chId = ulid();
+  const [ch] = await db.insert(channel).values({ id: chId, workspaceId, name, type: "dm", createdBy: userId }).returning();
+  await db.insert(channelMember).values([{ channelId: chId, userId }, { channelId: chId, userId: bot.id }]).onConflictDoNothing();
+  return { ...ch, created: true };
 }

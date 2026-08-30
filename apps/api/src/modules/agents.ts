@@ -374,4 +374,21 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const rows = await db().select().from(channel).where(eq(channel.workspaceId, agent.workspaceId));
     return rows;
   });
+
+  // find-or-create DM with agent bot (like LLM DM) — enables normal chat in sidebar
+  app.post("/api/agents/:id/dm", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const parsed = z.object({ workspaceId: z.string().min(1) }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    const dbi = db();
+    const [agent] = await dbi.select().from(agentRegistration).where(and(eq(agentRegistration.id, id), eq(agentRegistration.ownerId, user.id)));
+    if (!agent) return reply.code(404).send({ error: "Agent not found" });
+    const [wm] = await dbi.select().from(workspaceMember).where(and(eq(workspaceMember.workspaceId, parsed.data.workspaceId), eq(workspaceMember.userId, user.id)));
+    if (!wm) return reply.code(403).send({ error: "Not a member of workspace" });
+    const { findOrCreateAgentDm } = await import("../lib/agent.js");
+    const ch = await findOrCreateAgentDm(app, agent, user.id, parsed.data.workspaceId);
+    return { ...ch, agentId: agent.id, agentName: agent.name };
+  });
 }

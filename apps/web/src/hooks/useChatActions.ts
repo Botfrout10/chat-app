@@ -113,6 +113,33 @@ export function useOpenLlmDm() {
   );
 }
 
+/** Open (or create) the DM channel for an agent and select it — normal chat like AI models. */
+export function useOpenAgentDm() {
+  const activeWorkspaceId = useChatStore((s) => s.activeWorkspaceId);
+  const refresh = useRefreshChannels();
+  const setActiveChannel = useChatStore((s) => s.setActiveChannel);
+  return useCallback(
+    async (agentId: string) => {
+      if (!activeWorkspaceId) return;
+      try {
+        const ch: any = await (api as any).createAgentDm(agentId, activeWorkspaceId);
+        await refresh();
+        // ensure DM appears even if not in current workspace channels list
+        if (ch?.id) {
+          const current = useChatStore.getState().channels;
+          if (!current.find((c: any) => c.id === ch.id)) {
+            useChatStore.getState().setChannels([...current, ch as any]);
+          }
+        }
+        setActiveChannel(ch.id);
+      } catch (e: any) {
+        toast.error((e.message ?? "Failed to open agent chat").slice(0, 160));
+      }
+    },
+    [activeWorkspaceId, refresh, setActiveChannel],
+  );
+}
+
 /**
  * Keep workspace-wide presence in the Zustand store.
  * Mount once in AppShell — replaces per-component local presence maps.

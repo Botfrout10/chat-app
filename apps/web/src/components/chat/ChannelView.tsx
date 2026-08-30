@@ -200,11 +200,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     enabled: !!workspaceId,
   });
   const agentsInWorkspace = useMemo(() => ((workspaceAgents as any[]) ?? []).filter((a: any) => a.workspaceId === workspaceId), [workspaceAgents, workspaceId]);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  useEffect(() => {
-    if (!selectedAgentId && agentsInWorkspace.length === 1) setSelectedAgentId(agentsInWorkspace[0].id);
-    if (selectedAgentId && !agentsInWorkspace.find((a: any) => a.id === selectedAgentId)) setSelectedAgentId(null);
-  }, [agentsInWorkspace, selectedAgentId]);
 
   // palette jump-to-message: scroll + highlight, fetch window around if not in current pages
   useEffect(() => {
@@ -263,9 +258,12 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     };
     const onNew = (msg: any) => {
       qc.setQueryData(["messages", channelId], (old: any) => upsert(old, msg));
-      // final LLM reply arrived — drop the streaming placeholder
+      // final LLM/agent reply arrived — drop the streaming placeholder
       if (msg?.llmConnectionId) {
         useChatStore.getState().clearLlmStream(channelId);
+      }
+      if (msg?.agentId) {
+        useChatStore.getState().clearAgentStream(channelId);
       }
       // auto-mark read when in view and at bottom (StickToBottom pins us there)
       if (meId && isAtBottomRef.current && msg?.id) {
@@ -370,24 +368,33 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       if (c?.mentionName) s.add(String(c.mentionName).toLowerCase());
       if (c?.label) s.add(String(c.label).toLowerCase());
     }
+    for (const a of (workspaceAgents as any[]) ?? []) {
+      const slug = String(a.name ?? "").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-_]/g, "");
+      if (slug) s.add(slug);
+      if (a.name) s.add(String(a.name).toLowerCase());
+    }
     return s;
-  }, [members, llmConnections]);
+  }, [members, llmConnections, workspaceAgents]);
 
-  // @mention autocomplete state — includes connected AI models
+  // @mention autocomplete state — includes connected AI models and agents
   const modelCandidates = useMemo(
     () => (((llmConnections as any[]) ?? []).map((c: any) => ({ id: c.id, name: c.label, email: `@${c.mentionName}`, isModel: true, mentionName: c.mentionName }))),
     [llmConnections],
   );
+  const agentCandidates = useMemo(() => {
+    const slugify = (name: string) => String(name ?? "").toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9-_]+/g, "-").replace(/--+/g, "-").replace(/^-|-$/g, "");
+    return (((workspaceAgents as any[]) ?? []).map((a: any) => ({ id: a.id, name: a.name, email: `@${slugify(a.name)}`, isAgent: true, mentionName: slugify(a.name) })));
+  }, [workspaceAgents]);
   const [ac, setAc] = useState<{ open: boolean; q: string }>({ open: false, q: "" });
   const acMatches = useMemo(() => {
     if (!ac.open) return [];
     const q = ac.q.toLowerCase();
-    return [...((members as any) ?? []), ...modelCandidates].filter((m: any) => {
+    return [...((members as any) ?? []), ...modelCandidates, ...agentCandidates].filter((m: any) => {
       const n = String(m.name ?? "").toLowerCase();
       const e = String(m.email ?? "").toLowerCase();
       return n.startsWith(q) || e.startsWith(q);
     }).slice(0, 6);
-  }, [ac, members, modelCandidates]);
+  }, [ac, members, modelCandidates, agentCandidates]);
 
   const AC_RE = /@([\p{L}\p{N}_.-]*)$/u;
   function handleInput(v: string) {
@@ -398,7 +405,8 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   }
 
   function pickMention(m: any) {
-    setInput((prev) => prev.replace(/@([\p{L}\p{N}_.-]*)$/u, `@${m.isModel ? m.mentionName : m.name} `));
+    const token = m.isModel || m.isAgent ? m.mentionName : m.name;
+    setInput((prev) => prev.replace(/@([\p{L}\p{N}_.-]*)$/u, `@${token} `));
     setAc({ open: false, q: "" });
   }
 
@@ -706,29 +714,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
 
   async function handlePromptSubmitQueued({ text, files }: { text: string; files: FileUIPart[] }) {
     if (!text.trim() && files.length === 0) return;
-    // Workspace-bound agent prompt (Phase B): if an agent is selected, route via POST /api/agents/:id/prompt
-    if (selectedAgentId && agentsInWorkspace.find((a: any) => a.id === selectedAgentId)) {
-      setUploading(true);
-      try {
-        if (files.length) {
-          // agent prompt doesn't yet carry attachments — upload but note limitation
-          for (const f of files) await uploadAttachmentPart(f).catch(() => null);
-          if (files.length) toast.message("Attachments in agent chats are coming soon — sent prompt text only");
-        }
-        await (api as any).promptAgent(selectedAgentId, { channelId, content: text.trim() || "(attachment)", parentId: replyTo });
-        setInput("");
-        setReplyTo(null);
-        setAc({ open: false, q: "" });
-      } catch (e: any) {
-        let msg = String(e.message ?? e).slice(0, 300);
-        try { msg = JSON.parse(msg)?.error ?? msg; } catch {}
-        toast.error(msg.slice(0, 200));
-        setInput(text);
-      } finally {
-        setUploading(false);
-      }
-      return;
-    }
     // Agent chats: queue when agent offline (keeps queuing mechanism for agents)
     if (isAgentChannel) {
       if (isModelOffline) {
@@ -1089,20 +1074,6 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         <ConversationScrollButton />
       </Conversation>
 
-      {agentsInWorkspace.length > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 border-t border-[var(--border)] bg-[var(--muted)]/50 text-xs">
-          <span className="flex items-center gap-1.5 font-semibold tracking-widest text-[var(--muted-foreground)] text-[11px]"><Bot className="h-3 w-3" /> AGENT</span>
-          <select value={selectedAgentId ?? ""} onChange={(e) => setSelectedAgentId(e.target.value || null)} className="h-7 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 text-xs text-[var(--foreground)]">
-            <option value="">— Normal chat —</option>
-            {agentsInWorkspace.map((a: any) => (
-              <option key={a.id} value={a.id}>{a.name} ({a.status})</option>
-            ))}
-          </select>
-          {selectedAgentId && <span className="text-[11px] text-[var(--muted-foreground)]">Messages will be sent to the agent</span>}
-          {!selectedAgentId && agentsInWorkspace.length === 1 && <button onClick={() => setSelectedAgentId(agentsInWorkspace[0].id)} className="ml-auto text-[11px] text-[var(--primary)] hover:underline">Use {agentsInWorkspace[0].name}</button>}
-        </div>
-      )}
-
       <div className="relative border-t border-[var(--border)] p-3 bg-[var(--card)] shrink-0 w-full">
         {ac.open && acMatches.length > 0 && (
           <div className="absolute bottom-full left-3 right-3 mb-2 rounded-xl border border-[var(--border)] bg-popover shadow-[var(--shadow-card)] overflow-hidden z-10">
@@ -1111,11 +1082,13 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
               <button key={m.id} onMouseDown={(e) => { e.preventDefault(); pickMention(m); }} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--muted)] text-left">
                 {m.isModel ? (
                   <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--primary)] flex items-center justify-center text-[var(--primary-foreground)]"><Sparkles className="h-3 w-3" /></span>
+                ) : m.isAgent ? (
+                  <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)]"><Bot className="h-3 w-3" /></span>
                 ) : (
                   <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] text-[10px] font-bold">{String(m.name).slice(0, 2).toUpperCase()}</span>
                 )}
                 <span className="text-sm text-[var(--foreground)]">{m.name}</span>
-                <span className="text-xs text-[var(--muted-foreground)] ml-auto truncate max-w-[160px]">{m.isModel ? `model · @${m.mentionName}` : m.email}</span>
+                <span className="text-xs text-[var(--muted-foreground)] ml-auto truncate max-w-[160px]">{m.isModel ? `model · @${m.mentionName}` : m.isAgent ? `agent · @${m.mentionName}` : m.email}</span>
               </button>
             ))}
           </div>

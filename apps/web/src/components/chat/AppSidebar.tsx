@@ -23,7 +23,7 @@ import { api } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { useChatStore } from "@/store/chat";
 import { useUiStore, type SidebarSection } from "@/store/ui";
-import { useOpenDm, useOpenLlmDm } from "@/hooks/useChatActions";
+import { useOpenDm, useOpenLlmDm, useOpenAgentDm } from "@/hooks/useChatActions";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -194,6 +194,7 @@ export function AppSidebar() {
 
   const openDm = useOpenDm();
   const openLlmDm = useOpenLlmDm();
+  const openAgentDm = useOpenAgentDm();
 
   // notifications
   const [notifsOpen, setNotifsOpen] = useState(false);
@@ -375,7 +376,7 @@ export function AppSidebar() {
             <div className="px-2 text-xs text-sidebar-foreground/40">No agents connected.</div>
           )}
           {((agents as any[]) ?? []).map((a: any) => (
-            <SidebarButton key={a.id} onClick={() => openDialog("agentManager")} title={`${a.name} — ${a.endpoint ?? a.transport}`}>
+            <SidebarButton key={a.id} onClick={() => openAgentDm(a.id)} title={`${a.name} — open chat`}>
               <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] shrink-0">
                 <Bot className="h-3 w-3" />
               </span>

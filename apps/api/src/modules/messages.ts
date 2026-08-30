@@ -5,7 +5,7 @@ import { message, channelMember, channel, reaction, attachment, workspaceMember,
 import { sendMessageSchema, editMessageSchema, reactionSchema } from "@chat/shared/schemas";
 import { enforceRate } from "../lib/rateLimit.js";
 import { maybeTriggerLlm, abortLlmGenerationForMessage } from "../lib/llm.js";
-import { abortAgentGenerationForMessage } from "../lib/agent.js";
+import { maybeTriggerAgent, abortAgentGenerationForMessage } from "../lib/agent.js";
 
 export async function registerMessageRoutes(app: FastifyInstance) {
   // list messages with cursor pagination: ?before=<ulid>&after=<ulid>&limit=50
@@ -220,6 +220,7 @@ export async function registerMessageRoutes(app: FastifyInstance) {
 
     // wake connected LLMs (DM peer or personal @mention) — fire-and-forget
     void maybeTriggerLlm(app, { channel: ch, senderId: user.id, content: parsed.data.content, messageId: id });
+    void maybeTriggerAgent(app, { channel: ch, senderId: user.id, content: parsed.data.content, messageId: id });
 
     return withSender;
   });
