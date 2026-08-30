@@ -6,6 +6,8 @@ type Channel = { id: string; name: string; type: string; workspaceId: string; dm
 
 type LlmStream = { connectionId: string; text: string; thinking: string };
 
+type AgentStream = { agentId: string; text: string; thinking: string; toolCalls: Array<{ tool: string; args?: unknown }> };
+
 type State = {
   workspaces: Workspace[];
   activeWorkspaceId: string | null;
@@ -17,6 +19,8 @@ type State = {
   llmStreams: Record<string, LlmStream | null>;
   /** channelId -> connectionId currently typing */
   llmTyping: Record<string, string | null>;
+  agentStreams: Record<string, AgentStream | null>;
+  agentTyping: Record<string, string | null>;
   highlightedMessageId: string | null;
   setWorkspaces: (w: Workspace[]) => void;
   setActiveWorkspace: (id: string | null) => void;
@@ -31,6 +35,12 @@ type State = {
   clearLlmStream: (channelId: string) => void;
   clearLlmStreamByConnection: (connectionId: string) => void;
   setLlmTyping: (channelId: string, connectionId: string | null) => void;
+  startAgentStream: (channelId: string, agentId: string) => void;
+  appendAgentThinking: (channelId: string, agentId: string, delta: string) => void;
+  appendAgentText: (channelId: string, agentId: string, delta: string) => void;
+  appendAgentTool: (channelId: string, agentId: string, tool: string, args?: unknown) => void;
+  clearAgentStream: (channelId: string) => void;
+  setAgentTyping: (channelId: string, agentId: string | null) => void;
   setHighlightedMessage: (id: string | null) => void;
 };
 
@@ -43,6 +53,8 @@ export const useChatStore = create<State>((set, get) => ({
   presence: {},
   llmStreams: {},
   llmTyping: {},
+  agentStreams: {},
+  agentTyping: {},
   highlightedMessageId: null,
   setWorkspaces: (workspaces) => set({ workspaces }),
   setActiveWorkspace: (activeWorkspaceId) => set({ activeWorkspaceId }),
@@ -82,5 +94,29 @@ export const useChatStore = create<State>((set, get) => ({
     }),
   setLlmTyping: (channelId, connectionId) =>
     set((s) => ({ llmTyping: { ...s.llmTyping, [channelId]: connectionId } })),
+  startAgentStream: (channelId, agentId) =>
+    set((s) => ({ agentStreams: { ...s.agentStreams, [channelId]: { agentId, text: "", thinking: "", toolCalls: [] } } })),
+  appendAgentThinking: (channelId, agentId, delta) =>
+    set((s) => {
+      const cur = s.agentStreams[channelId];
+      if (!cur || cur.agentId !== agentId) return s;
+      return { agentStreams: { ...s.agentStreams, [channelId]: { ...cur, thinking: cur.thinking + delta } } };
+    }),
+  appendAgentText: (channelId, agentId, delta) =>
+    set((s) => {
+      const cur = s.agentStreams[channelId];
+      if (!cur || cur.agentId !== agentId) return s;
+      return { agentStreams: { ...s.agentStreams, [channelId]: { ...cur, text: cur.text + delta } } };
+    }),
+  appendAgentTool: (channelId, agentId, tool, args) =>
+    set((s) => {
+      const cur = s.agentStreams[channelId];
+      if (!cur || cur.agentId !== agentId) return s;
+      return { agentStreams: { ...s.agentStreams, [channelId]: { ...cur, toolCalls: [...cur.toolCalls, { tool, args }] } } };
+    }),
+  clearAgentStream: (channelId) =>
+    set((s) => ({ agentStreams: { ...s.agentStreams, [channelId]: null }, agentTyping: { ...s.agentTyping, [channelId]: null } })),
+  setAgentTyping: (channelId, agentId) =>
+    set((s) => ({ agentTyping: { ...s.agentTyping, [channelId]: agentId } })),
   setHighlightedMessage: (id) => set({ highlightedMessageId: id }),
 }));

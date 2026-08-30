@@ -111,6 +111,7 @@ export function AppShell() {
       // key off msg.channelId: the channels-list API doesn't return
       // llmConnectionId, so matching by connection would never hit.
       if (msg?.llmConnectionId && msg?.channelId) st().clearLlmStream(msg.channelId);
+      if (msg?.agentId && msg?.channelId) st().clearAgentStream(msg.channelId);
     };
     s.on("llm:typing", onTyping);
     s.on("llm:thinking", onThinking);
@@ -125,6 +126,41 @@ export function AppShell() {
       s.off("llm:error", onError);
       s.off("message:new", onNew);
       s.off("message", onNew);
+    };
+  }, []);
+
+  // global agent stream listeners
+  useEffect(() => {
+    const s = connectSocket();
+    const st = () => useChatStore.getState();
+    const onAgentTyping = (p: any) => {
+      if (!p.channelId) return;
+      st().setAgentTyping(p.channelId, p.isTyping ? p.agentId : null);
+      if (p.isTyping) st().startAgentStream(p.channelId, p.agentId);
+    };
+    const onAgentThinking = (p: any) => {
+      if (p.channelId && p.delta) st().appendAgentThinking(p.channelId, p.agentId, p.delta);
+    };
+    const onAgentDelta = (p: any) => {
+      if (p.channelId && p.delta) st().appendAgentText(p.channelId, p.agentId, p.delta);
+    };
+    const onAgentTool = (p: any) => {
+      if (p.channelId) st().appendAgentTool(p.channelId, p.agentId, p.tool ?? "tool", p.args);
+    };
+    const onAgentError = (p: any) => {
+      if (p.channelId) st().clearAgentStream(p.channelId);
+    };
+    s.on("agent:typing", onAgentTyping);
+    s.on("agent:thinking", onAgentThinking);
+    s.on("agent:delta", onAgentDelta);
+    s.on("agent:tool", onAgentTool);
+    s.on("agent:error", onAgentError);
+    return () => {
+      s.off("agent:typing", onAgentTyping);
+      s.off("agent:thinking", onAgentThinking);
+      s.off("agent:delta", onAgentDelta);
+      s.off("agent:tool", onAgentTool);
+      s.off("agent:error", onAgentError);
     };
   }, []);
 

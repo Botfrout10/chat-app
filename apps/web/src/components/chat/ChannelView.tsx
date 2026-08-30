@@ -7,7 +7,7 @@ import { useChatStore } from "@/store/chat";
 import { useUiStore } from "@/store/ui";
 import { MessageItem } from "./MessageItem";
 import { Button } from "@/components/ui/button";
-import { AtSign, BrainCircuit, CornerDownLeft, Hash, Sparkles, AlertTriangle, WifiOff, CheckCircle2, Loader2, Clock, RefreshCw } from "lucide-react";
+import { AtSign, Bot, BrainCircuit, CornerDownLeft, Hash, Sparkles, AlertTriangle, WifiOff, CheckCircle2, Loader2, Clock, RefreshCw } from "lucide-react";
 import type { FileUIPart } from "ai";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { toast } from "sonner";
@@ -189,10 +189,22 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     for (const c of (llmConnections as any[]) ?? []) map.set(c.id, c.label);
     return map;
   }, [llmConnections]);
-  // live stream lives in the global store — survives switching channels mid-generation
+  // live streams survive switching channels mid-generation
   const stream = useChatStore((s) => s.llmStreams[channelId] ?? null);
+  const agentStream = useChatStore((s) => s.agentStreams[channelId] ?? null);
   const highlightedMessageId = useChatStore((s) => s.highlightedMessageId);
   const setHighlightedMessage = useChatStore((s) => s.setHighlightedMessage);
+  const { data: workspaceAgents } = useQuery({
+    queryKey: ["agents"],
+    queryFn: () => (api as any).agents().catch(() => []),
+    enabled: !!workspaceId,
+  });
+  const agentsInWorkspace = useMemo(() => ((workspaceAgents as any[]) ?? []).filter((a: any) => a.workspaceId === workspaceId), [workspaceAgents, workspaceId]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedAgentId && agentsInWorkspace.length === 1) setSelectedAgentId(agentsInWorkspace[0].id);
+    if (selectedAgentId && !agentsInWorkspace.find((a: any) => a.id === selectedAgentId)) setSelectedAgentId(null);
+  }, [agentsInWorkspace, selectedAgentId]);
 
   // palette jump-to-message: scroll + highlight, fetch window around if not in current pages
   useEffect(() => {
@@ -694,6 +706,29 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
 
   async function handlePromptSubmitQueued({ text, files }: { text: string; files: FileUIPart[] }) {
     if (!text.trim() && files.length === 0) return;
+    // Workspace-bound agent prompt (Phase B): if an agent is selected, route via POST /api/agents/:id/prompt
+    if (selectedAgentId && agentsInWorkspace.find((a: any) => a.id === selectedAgentId)) {
+      setUploading(true);
+      try {
+        if (files.length) {
+          // agent prompt doesn't yet carry attachments — upload but note limitation
+          for (const f of files) await uploadAttachmentPart(f).catch(() => null);
+          if (files.length) toast.message("Attachments in agent chats are coming soon — sent prompt text only");
+        }
+        await (api as any).promptAgent(selectedAgentId, { channelId, content: text.trim() || "(attachment)", parentId: replyTo });
+        setInput("");
+        setReplyTo(null);
+        setAc({ open: false, q: "" });
+      } catch (e: any) {
+        let msg = String(e.message ?? e).slice(0, 300);
+        try { msg = JSON.parse(msg)?.error ?? msg; } catch {}
+        toast.error(msg.slice(0, 200));
+        setInput(text);
+      } finally {
+        setUploading(false);
+      }
+      return;
+    }
     // Agent chats: queue when agent offline (keeps queuing mechanism for agents)
     if (isAgentChannel) {
       if (isModelOffline) {
@@ -1013,6 +1048,38 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
             </Message>
           )}
 
+          {/* live agent stream placeholder */}
+          {agentStream && (
+            <Message from="assistant" className="max-w-full gap-1 py-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[var(--foreground)]">
+                <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)]"><Bot className="h-3 w-3" /></span>
+                {agentsInWorkspace.find((a: any) => a.id === agentStream.agentId)?.name ?? "Agent"}
+                {!agentStream.text && !agentStream.thinking && agentStream.toolCalls.length === 0 && (
+                  <Shimmer className="font-normal text-[var(--muted-foreground)]">Agent working…</Shimmer>
+                )}
+              </div>
+              {!!agentStream.thinking && (
+                <Reasoning defaultOpen={!agentStream.text}>
+                  <ReasoningTrigger className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]" />
+                  <ReasoningContent className="max-h-64 overflow-y-auto break-words text-xs text-[var(--muted-foreground)]">
+                    {agentStream.thinking}
+                  </ReasoningContent>
+                </Reasoning>
+              )}
+              {agentStream.toolCalls.length > 0 && (
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs">
+                  <div className="font-semibold tracking-widest text-[var(--muted-foreground)] text-[11px]">TOOL CALLS</div>
+                  <ul className="mt-1 space-y-1 font-mono text-[11px]">
+                    {agentStream.toolCalls.map((tc, i) => (
+                      <li key={i}>· {tc.tool}{tc.args ? ` ${JSON.stringify(tc.args).slice(0, 80)}` : ""}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {agentStream.text && <MessageResponse className="text-sm break-words">{agentStream.text}</MessageResponse>}
+            </Message>
+          )}
+
           {typing.length > 0 && (
             <div className="px-4 py-1 text-xs text-[var(--muted-foreground)] italic bg-[var(--accent-50)] dark:bg-white/5 border-y border-[var(--border)] -mx-4">
               {typing.length === 1 ? "Someone is typing…" : `${typing.length} people are typing…`}
@@ -1021,6 +1088,20 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         </ConversationContent>
         <ConversationScrollButton />
       </Conversation>
+
+      {agentsInWorkspace.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 border-t border-[var(--border)] bg-[var(--muted)]/50 text-xs">
+          <span className="flex items-center gap-1.5 font-semibold tracking-widest text-[var(--muted-foreground)] text-[11px]"><Bot className="h-3 w-3" /> AGENT</span>
+          <select value={selectedAgentId ?? ""} onChange={(e) => setSelectedAgentId(e.target.value || null)} className="h-7 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 text-xs text-[var(--foreground)]">
+            <option value="">— Normal chat —</option>
+            {agentsInWorkspace.map((a: any) => (
+              <option key={a.id} value={a.id}>{a.name} ({a.status})</option>
+            ))}
+          </select>
+          {selectedAgentId && <span className="text-[11px] text-[var(--muted-foreground)]">Messages will be sent to the agent</span>}
+          {!selectedAgentId && agentsInWorkspace.length === 1 && <button onClick={() => setSelectedAgentId(agentsInWorkspace[0].id)} className="ml-auto text-[11px] text-[var(--primary)] hover:underline">Use {agentsInWorkspace[0].name}</button>}
+        </div>
+      )}
 
       <div className="relative border-t border-[var(--border)] p-3 bg-[var(--card)] shrink-0 w-full">
         {ac.open && acMatches.length > 0 && (
