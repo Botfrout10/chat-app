@@ -17,6 +17,7 @@ import { registerSearchRoutes } from "./modules/search.js";
 import { registerUserRoutes } from "./modules/users.js";
 import { registerNotificationRoutes } from "./modules/notifications.js";
 import { registerLlmRoutes } from "./modules/llm.js";
+import { registerAgentRoutes } from "./modules/agents.js";
 import { setupSocket } from "./modules/socket.js";
 import { startNotificationWorker, stopNotificationWorker } from "./workers/notifications.js";
 import { closeQueue } from "./lib/queue.js";
@@ -144,6 +145,7 @@ await registerAttachmentRoutes(app);
 await registerSearchRoutes(app);
 await registerNotificationRoutes(app);
 await registerLlmRoutes(app);
+await registerAgentRoutes(app);
 
 // 404
 app.setNotFoundHandler((_, reply) => reply.code(404).send({ error: "Not found" }));

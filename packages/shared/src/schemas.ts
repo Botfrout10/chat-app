@@ -75,3 +75,34 @@ export const createLlmConnectionSchema = z.object({
 });
 
 export const updateLlmConnectionSchema = createLlmConnectionSchema.partial();
+
+export const agentStatusEnum = z.enum(["pending", "online", "offline", "error"]);
+export type AgentStatus = z.infer<typeof agentStatusEnum>;
+
+export const createAgentRegistrationSchema = z
+  .object({
+    name: z.string().min(1).max(80),
+    workspaceId: z.string().min(1).max(64),
+    transport: z.enum(["network", "stdio"]).default("network"),
+    endpoint: z.string().url().max(500).optional(),
+    authSecret: z.string().min(1).max(500).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.transport === "network" && !data.endpoint) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "endpoint is required for network transport", path: ["endpoint"] });
+    }
+  });
+
+export const updateAgentRegistrationSchema = z
+  .object({
+    name: z.string().min(1).max(80).optional(),
+    workspaceId: z.string().min(1).max(64).optional(),
+    transport: z.enum(["network", "stdio"]).optional(),
+    endpoint: z.string().url().max(500).optional().nullable(),
+    authSecret: z.string().min(1).max(500).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.transport === "network" && data.endpoint !== undefined && !data.endpoint) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "endpoint is required for network transport", path: ["endpoint"] });
+    }
+  });
