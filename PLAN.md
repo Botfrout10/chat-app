@@ -110,7 +110,7 @@ Chat with LLMs; delegate real work to external agents. **Connect-only**: the app
 - [x] shared: `agentRegistrationSchema` (create + update zod), `AgentStatus` enum (`f180ce8`)
 - [x] API: CRUD + `POST /api/agents/:id/verify` (handshake touch) + `GET /api/agents/:id/status` (`f180ce8` — `apps/api/src/modules/agents.ts`, `POST /api/agents/preview`, `GET /api/agents`, `POST /api/agents`, `PATCH/DELETE /:id`, rate-limited `agent-verify` 10/min, `sanitize` strips `authSecret` → `hasAuthSecret`, verify probes `GET <endpoint>` then `POST <endpoint>/initialize` with 5s timeout, stores `status`/`capabilities`/`machineMetadata`/`lastHeartbeatAt`) · ACP client — initialize/session lifecycle, prompt submission, streamed updates fanned out to workspace socket room — **remaining**
 - [ ] Each agent gets its own **workspace** in the app bound to the user-managed machine; task threads map to ACP sessions
-- [ ] Web: agents sidebar section + status page; rich rendering of ACP events — agent text, tool calls, file diffs, permission/approval prompts surfaced as interactive messages
+- [x] Web: agents sidebar section + status page (`cf92b7f` — `AppSidebar` `AGENTS` collapsible + `CommandPalette` agents group + `AgentManager` dialog with workspace picker, `opencode serve` endpoint + auth secret, preview, expandable status detail, re-check/remove) · rich rendering of ACP events — agent text, tool calls, file diffs, permission/approval prompts surfaced as interactive messages — **remaining**
 - [ ] Mobile: minimal — read agent output, approve/deny prompts
 
 ### Phase C — Later
