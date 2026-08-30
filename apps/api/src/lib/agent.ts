@@ -176,7 +176,7 @@ type AgentStreamEvent =
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
-// Session-specific generator that uses the correct OpenCode API
+// Session-specific generator that uses the correct OpenCode API with true incremental polling
 async function* streamViaOpenCodeSession(
   app: FastifyInstance,
   agent: AgentRow,
@@ -189,18 +189,14 @@ async function* streamViaOpenCodeSession(
   if (!endpoint) throw new Error("Agent has no endpoint");
 
   const sessionId = await getOrCreateOpenCodeSession(app, agent, channelId, signal);
-
-  // Try prompt_async + SSE first for true streaming, fall back to blocking /message
-  // prompt_async is POST /session/:id/prompt_async -> 204, then GET /event SSE
   const promptAsyncUrl = `${endpoint}/session/${sessionId}/prompt_async`;
   const messageUrl = `${endpoint}/session/${sessionId}/message`;
-  const body = {
-    parts: [{ type: "text", text: latestUserContent }],
-  };
+  const listUrl = `${endpoint}/session/${sessionId}/message`;
+  const body = { parts: [{ type: "text", text: latestUserContent }] };
 
-  app.log.info(`[agent:${agent.name}] POST ${promptAsyncUrl} (try streaming)`);
-  // First try async streaming via SSE
-  let usedSse = false;
+  app.log.info(`[agent:${agent.name}] POST ${promptAsyncUrl} (polling for streaming)`);
+
+  let promptAsyncOk = false;
   try {
     const asyncRes = await fetchWithAuthFallback(promptAsyncUrl, secret, {
       method: "POST",
@@ -209,77 +205,106 @@ async function* streamViaOpenCodeSession(
       signal,
     }, 10_000);
     if (asyncRes.ok || asyncRes.status === 204) {
-      usedSse = true;
-      // Listen to /event SSE for this session's messages until completion
-      const eventUrl = `${endpoint}/event`;
-      app.log.info(`[agent:${agent.name}] listening SSE ${eventUrl} for session ${sessionId}`);
-      const sseRes = await fetchWithAuthFallback(eventUrl, secret, {
-        headers: { accept: "text/event-stream" },
-        signal,
-      }, GENERATION_TIMEOUT_MS);
-      if (sseRes.ok && sseRes.body) {
-        const reader = (sseRes.body as ReadableStream<Uint8Array>).getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let gotDelta = false;
-        const deadline = Date.now() + GENERATION_TIMEOUT_MS;
-        while (Date.now() < deadline) {
-          if (signal.aborted) break;
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let idx: number;
-          while ((idx = buffer.indexOf("\n")) >= 0) {
-            const raw = buffer.slice(0, idx).trim();
-            buffer = buffer.slice(idx + 1);
-            if (!raw) continue;
-            const line = raw.startsWith("data:") ? raw.slice(5).trim() : raw;
-            if (!line || line === "[DONE]") continue;
-            let evt: any;
-            try {
-              evt = JSON.parse(line);
-            } catch {
-              continue;
-            }
-            // OpenCode event bus shape: { type: "session.message.updated", ... } or parts
-            const type = evt.type ?? evt.event;
-            if (type === "server.connected") continue;
-            // Heuristic: look for text parts
-            const parts = evt.parts ?? evt.message?.parts ?? evt.data?.parts ?? evt.payload?.parts;
-            if (Array.isArray(parts)) {
-              for (const p of parts) {
-                if (p.type === "text" && typeof p.text === "string" && p.text) {
-                  // de-dupe by yielding only new? For now yield as delta (SSE will replay full history each event, so we need to emit incrementally)
-                  // Simple: yield whole text as delta chunk; caller accumulates. For SSE that replays full, we'd double count.
-                  // Instead, fetch final message via blocking fallback if SSE is too noisy.
-                }
-              }
-            }
-            // Fallback: if event contains a delta field
-            if (typeof evt.delta === "string" && evt.delta) {
-              gotDelta = true;
-              yield { type: "delta", text: evt.delta };
-            } else if (typeof evt.text === "string" && evt.text) {
-              gotDelta = true;
-              yield { type: "delta", text: evt.text };
-            }
-            // detect completion via session status or message completion
-            if (type === "session.status" && evt.status === "completed") break;
-            if (type === "message.completed" || type === "session.message.completed") break;
-          }
-          if (gotDelta) break; // if we got something, stop SSE loop and fall through to final fetch
-        }
-        try { await (sseRes.body as any)?.cancel?.(); } catch {}
-        if (gotDelta) return;
-        // if SSE gave no delta, fall back to polling final message
-        app.log.info(`[agent:${agent.name}] SSE gave no delta, falling back to polling /session/${sessionId}/message`);
-      }
+      promptAsyncOk = true;
+      await asyncRes.text().catch(() => "");
+      app.log.info(`[agent:${agent.name}] prompt_async accepted ${asyncRes.status}, polling ${listUrl} for incremental deltas`);
+    } else {
+      const t = await asyncRes.text().catch(() => "");
+      if (isHtmlResponse(t, asyncRes.headers.get("content-type"))) throw new Error(`prompt_async HTML ${asyncRes.status}`);
+      app.log.warn(`[agent:${agent.name}] prompt_async ${asyncRes.status} ${t.slice(0,200)} — fallback to blocking`);
     }
   } catch (e) {
-    app.log.warn(`[agent:${agent.name}] prompt_async/SSE failed, falling back to blocking message: ${(e as Error).message}`);
+    app.log.warn(`[agent:${agent.name}] prompt_async failed: ${(e as Error).message} — fallback to blocking`);
   }
 
-  if (!usedSse) app.log.info(`[agent:${agent.name}] falling back to blocking POST ${messageUrl}`);
+  if (promptAsyncOk) {
+    // Incremental polling: GET /session/:id/message repeatedly, diff text parts
+    const pollIntervalMs = 350;
+    const deadline = Date.now() + GENERATION_TIMEOUT_MS;
+    let prevText = "";
+    let prevToolCount = 0;
+    let stableTicks = 0;
+    let lastYieldAt = Date.now();
+    while (Date.now() < deadline) {
+      if (signal.aborted) throw new Error("aborted");
+      try {
+        const res = await fetchWithAuthFallback(listUrl, secret, { headers: { accept: "application/json" } }, 5_000);
+        const txt = await res.text().catch(() => "");
+        if (!res.ok) {
+          if (isHtmlResponse(txt, res.headers.get("content-type"))) {
+            throw new Error(`poll returned HTML ${res.status} — web UI`);
+          }
+          // non-200 poll is transient, keep polling
+          app.log.warn(`[agent:${agent.name}] poll ${res.status} ${txt.slice(0,100)}`);
+        } else {
+          let arr: any[] = [];
+          try {
+            const j = JSON.parse(txt);
+            arr = Array.isArray(j) ? j : j?.data ?? j?.messages ?? [];
+          } catch {}
+          // arr is [{info, parts}] or [] — find last assistant message
+          const assistantEntries = arr.filter((e: any) => (e?.info?.role ?? e?.role) === "assistant" || (e?.info?.type ?? e?.type) === "assistant");
+          const last = assistantEntries.length ? assistantEntries[assistantEntries.length - 1] : arr[arr.length - 1];
+          const parts: any[] = last?.parts ?? last?.message?.parts ?? [];
+          const textParts = parts.filter((p: any) => p.type === "text" && typeof p.text === "string").map((p: any) => p.text).join("");
+          const toolParts = parts.filter((p: any) => p.type === "tool" || p.type === "tool_call" || p.tool);
+          // yield new text delta
+          if (textParts.length > prevText.length) {
+            const delta = textParts.slice(prevText.length);
+            prevText = textParts;
+            lastYieldAt = Date.now();
+            stableTicks = 0;
+            // chunk delta into small pieces for smooth UI (like token streaming)
+            for (let i = 0; i < delta.length; i += 40) {
+              yield { type: "delta", text: delta.slice(i, i + 40) };
+            }
+          }
+          // yield new tool calls
+          if (toolParts.length > prevToolCount) {
+            for (let i = prevToolCount; i < toolParts.length; i++) {
+              const p = toolParts[i];
+              const tool = p.tool ?? p.name ?? p.id ?? "tool";
+              yield { type: "tool_call", tool: String(tool), args: p.args ?? p.input ?? p.arguments, id: p.id };
+              if (p.output) yield { type: "tool_result", tool: String(tool), result: String(p.output).slice(0, 2000) };
+            }
+            prevToolCount = toolParts.length;
+          }
+          // yield reasoning if present
+          const reasoning = parts.filter((p: any) => p.type === "reasoning" && p.text).map((p: any) => p.text).join("");
+          if (reasoning && reasoning.length > 0) {
+            // reasoning is usually complete, not incremental — yield once
+            // we track via prevText? For now yield if not yet yielded
+            // simple: if we haven't yielded reasoning before and it's new
+          }
+          const status = last?.info?.status ?? last?.status ?? "";
+          const isDone = status === "completed" || status === "finished" || status === "idle" || status === "done";
+          if (isDone && textParts.length > 0) {
+            app.log.info(`[agent:${agent.name}] polling detected completed status ${status} with ${textParts.length} chars`);
+            break;
+          }
+          // heuristic: if no new data for ~2s after having some text, assume done
+          if (prevText.length > 0 && Date.now() - lastYieldAt > 2500) {
+            stableTicks++;
+            if (stableTicks >= 6) {
+              app.log.info(`[agent:${agent.name}] polling stable for 2.5s, ending with ${prevText.length} chars`);
+              break;
+            }
+          }
+          // also check session status endpoint for completion
+          if (arr.length === 0) {
+            // no messages yet, keep polling
+          }
+        }
+      } catch (e) {
+        if ((e as Error).message.includes("aborted")) throw e;
+        app.log.warn(`[agent:${agent.name}] poll error: ${(e as Error).message}`);
+      }
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+      if (signal.aborted) break;
+    }
+    if (prevText) return; // we already yielded streaming deltas, finish
+    app.log.info(`[agent:${agent.name}] polling yielded no text, falling back to blocking POST ${messageUrl}`);
+  }
 
   // Blocking fallback: POST /session/:id/message waits for full response
   const res = await fetchWithAuthFallback(messageUrl, secret, {
@@ -293,9 +318,7 @@ async function* streamViaOpenCodeSession(
   if (!res.ok) {
     if (isHtmlResponse(text, ct)) {
       throw new Error(
-        `Agent endpoint returned HTML at ${messageUrl} (${res.status}). ` +
-          `You are hitting the web UI, not the API. Use \`opencode serve\` (not \`opencode acp\`) and set endpoint to http://localhost:4096. ` +
-          `Verify via curl -s http://localhost:4096/global/health or open ${endpoint}/doc.`,
+        `Agent endpoint returned HTML at ${messageUrl} (${res.status}). You are hitting the web UI, not the API. Use \`opencode serve\` (not \`opencode acp\`) and set endpoint to http://localhost:4096. Verify via curl -s http://localhost:4096/global/health.`,
       );
     }
     throw new Error(`Agent message failed ${res.status} ${res.statusText}${text ? ` ${text.slice(0, 500)}` : ""}`);
@@ -304,11 +327,9 @@ async function* streamViaOpenCodeSession(
   try {
     data = JSON.parse(text);
   } catch {
-    // Some servers return raw text parts?
     yield { type: "delta", text };
     return;
   }
-  // Response shape: { info: Message, parts: Part[] }
   const parts: any[] = data?.parts ?? data?.message?.parts ?? data?.data?.parts ?? [];
   let full = "";
   for (const p of parts) {
@@ -316,16 +337,10 @@ async function* streamViaOpenCodeSession(
     else if (p.type === "tool" && p.tool) {
       yield { type: "tool_call", tool: p.tool, args: p.args ?? p.input };
       if (p.output) yield { type: "tool_result", tool: p.tool, result: String(p.output).slice(0, 2000) };
-    } else if (p.type === "reasoning" && p.text) {
-      yield { type: "thinking", text: p.text };
-    }
+    } else if (p.type === "reasoning" && p.text) yield { type: "thinking", text: p.text };
   }
   if (full) {
-    // chunk to simulate streaming
-    const chunkSize = 40;
-    for (let i = 0; i < full.length; i += chunkSize) {
-      yield { type: "delta", text: full.slice(i, i + chunkSize) };
-    }
+    for (let i = 0; i < full.length; i += 40) yield { type: "delta", text: full.slice(i, i + 40) };
   } else if (!parts.length) {
     const fallback = data?.info?.content ?? data?.content ?? "";
     if (fallback) yield { type: "delta", text: String(fallback) };
