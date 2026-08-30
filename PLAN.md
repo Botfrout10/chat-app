@@ -65,7 +65,8 @@ Full chat parity with web; bearer-token auth; push notifications deferred to pha
 
 ## Remaining / next up
 
-- [ ] Web polish: palette jump-to-message highlight (currently jumps to channel only), PromptInput native attachment integration (presign flow kept custom), dark-mode audit of new shadcn dialogs
+- [x] Web polish: palette jump-to-message highlight — `CommandPalette` now calls `goToMessage(channelId, messageId)` → `store/chat.ts:highlightedMessageId` → `ChannelView` scrolls `msg-<id>` into view with `ring` highlight (2.5s auto-clear) + fetches around-window (`?before`/`?after`) if not in current pages; `MessageItem` has `id=msg-<id>` + highlight ring
+- [ ] Web polish (remaining): PromptInput native attachment integration (presign flow kept custom), dark-mode audit of new shadcn dialogs
 - [ ] Push notifications (phase 2): device token registry migration, `POST /api/push/register`, expo-server-sdk delivery in notifications worker, deep links
 - [ ] Search v2 (`tsvector` GIN), OpenSearch
 

@@ -95,6 +95,12 @@ export function CommandPalette() {
     close();
   }
 
+  function goToMessage(channelId: string, messageId: string) {
+    setActiveChannel(channelId);
+    useChatStore.getState().setHighlightedMessage(messageId);
+    close();
+  }
+
   const runAction = (fn: () => void) => { close(); fn(); };
 
   return (
@@ -155,13 +161,16 @@ export function CommandPalette() {
           <>
             <CommandSeparator />
             <CommandGroup heading={`Messages matching “${debouncedQ}”`}>
-              {(searchRes as any[]).slice(0, 8).map((r: any) => (
-                <CommandItem key={r.id} value={`message ${r.id} ${r.content}`} onSelect={() => go(r.channelId ?? r.channel?.id)} className="gap-2">
-                  <Search className="shrink-0" />
-                  <span className="truncate flex-1">{r.content}</span>
-                  <span className="text-xs text-[var(--muted-foreground)] shrink-0">#{r.channel?.name ?? ""}</span>
-                </CommandItem>
-              ))}
+              {(searchRes as any[]).slice(0, 8).map((r: any) => {
+                const chId = r.channelId ?? r.channel?.id;
+                return (
+                  <CommandItem key={r.id} value={`message ${r.id} ${r.content}`} onSelect={() => (chId ? goToMessage(chId, r.id) : undefined)} className="gap-2">
+                    <Search className="shrink-0" />
+                    <span className="truncate flex-1">{r.content}</span>
+                    <span className="text-xs text-[var(--muted-foreground)] shrink-0">#{r.channel?.name ?? ""}</span>
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
           </>
         )}

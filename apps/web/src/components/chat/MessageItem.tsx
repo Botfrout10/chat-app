@@ -43,6 +43,7 @@ function MessageItemInner({
   memberTokens,
   meName,
   readBy = EMPTY_READBY,
+  highlighted,
 }: {
   msg: Msg;
   onReply?: (id: string) => void;
@@ -56,6 +57,7 @@ function MessageItemInner({
   memberTokens?: Set<string>;
   meName?: string;
   readBy?: { id: string; name: string; image?: string | null }[];
+  highlighted?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
@@ -104,9 +106,10 @@ function MessageItemInner({
 
   return (
     <div
+      id={`msg-${msg.id}`}
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
-      className="relative hover:bg-[var(--muted)]/60"
+      className={`relative hover:bg-[var(--muted)]/60 scroll-mt-20 transition-colors duration-500 ${highlighted ? "bg-[var(--accent-50)] dark:bg-[var(--accent-600)]/20 ring-2 ring-[var(--primary)]/40 rounded-lg" : ""}`}
     >
       {/* AI Elements preset alignment: own → right bubble, others → left */}
       <Message

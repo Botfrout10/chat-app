@@ -17,6 +17,7 @@ type State = {
   llmStreams: Record<string, LlmStream | null>;
   /** channelId -> connectionId currently typing */
   llmTyping: Record<string, string | null>;
+  highlightedMessageId: string | null;
   setWorkspaces: (w: Workspace[]) => void;
   setActiveWorkspace: (id: string | null) => void;
   setChannels: (c: Channel[]) => void;
@@ -30,6 +31,7 @@ type State = {
   clearLlmStream: (channelId: string) => void;
   clearLlmStreamByConnection: (connectionId: string) => void;
   setLlmTyping: (channelId: string, connectionId: string | null) => void;
+  setHighlightedMessage: (id: string | null) => void;
 };
 
 export const useChatStore = create<State>((set, get) => ({
@@ -41,6 +43,7 @@ export const useChatStore = create<State>((set, get) => ({
   presence: {},
   llmStreams: {},
   llmTyping: {},
+  highlightedMessageId: null,
   setWorkspaces: (workspaces) => set({ workspaces }),
   setActiveWorkspace: (activeWorkspaceId) => set({ activeWorkspaceId }),
   setChannels: (channels) => set({ channels }),
@@ -79,4 +82,5 @@ export const useChatStore = create<State>((set, get) => ({
     }),
   setLlmTyping: (channelId, connectionId) =>
     set((s) => ({ llmTyping: { ...s.llmTyping, [channelId]: connectionId } })),
+  setHighlightedMessage: (id) => set({ highlightedMessageId: id }),
 }));

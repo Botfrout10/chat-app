@@ -181,6 +181,50 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   }, [llmConnections]);
   // live stream lives in the global store — survives switching channels mid-generation
   const stream = useChatStore((s) => s.llmStreams[channelId] ?? null);
+  const highlightedMessageId = useChatStore((s) => s.highlightedMessageId);
+  const setHighlightedMessage = useChatStore((s) => s.setHighlightedMessage);
+
+  // palette jump-to-message: scroll + highlight, fetch window around if not in current pages
+  useEffect(() => {
+    if (!highlightedMessageId) return;
+    const exists = allMessages.some((m: any) => m.id === highlightedMessageId);
+    if (exists) {
+      requestAnimationFrame(() => {
+        document.getElementById(`msg-${highlightedMessageId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      const t = setTimeout(() => setHighlightedMessage(null), 2500);
+      return () => clearTimeout(t);
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const fetched: any = await api.message(highlightedMessageId).catch(() => null);
+        if (!fetched || fetched.channelId !== channelId || cancelled) return;
+        const [beforeRes, afterRes]: any = await Promise.all([
+          api.messages(channelId, `?before=${highlightedMessageId}&limit=15`).catch(() => ({ messages: [] })),
+          api.messages(channelId, `?after=${highlightedMessageId}&limit=15`).catch(() => ({ messages: [] })),
+        ]);
+        if (cancelled) return;
+        const around: any[] = [...(beforeRes.messages ?? []), fetched, ...(afterRes.messages ?? [])];
+        around.sort((a: any, b: any) => (a.id < b.id ? 1 : -1));
+        qc.setQueryData(["messages", channelId], (old: any) => {
+          if (!old) return { pages: [{ messages: around, nextCursor: null, hasMore: false }], pageParams: [undefined] };
+          const existingIds = new Set(allMessages.map((m: any) => m.id));
+          const toAdd = around.filter((m: any) => !existingIds.has(m.id));
+          if (!toAdd.length) return old;
+          const pages = old.pages.map((p: any) => ({ ...p }));
+          const merged = [...pages[0].messages, ...toAdd].sort((a: any, b: any) => (a.id < b.id ? 1 : -1));
+          pages[0] = { ...pages[0], messages: merged };
+          return { ...old, pages };
+        });
+        setTimeout(() => {
+          if (!cancelled) document.getElementById(`msg-${highlightedMessageId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 100);
+        setTimeout(() => { if (!cancelled) setHighlightedMessage(null); }, 3000);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [highlightedMessageId, allMessages, channelId, qc, setHighlightedMessage]);
 
   useEffect(() => {
     const s = connectSocket();
@@ -929,6 +973,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
                   memberTokens={memberTokens}
                   meName={meName}
                   readBy={readByMap.get(m.id) ?? EMPTY_READBY}
+                  highlighted={highlightedMessageId === m.id}
                 />
               );
             })
