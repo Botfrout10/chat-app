@@ -1,8 +1,8 @@
 "use client";
 import { create } from "zustand";
 
-export type UiDialog = "createWorkspace" | "createChannel" | "inviteMember" | "newDm" | "llmManager";
-export type SidebarSection = "channels" | "dms" | "ai";
+export type UiDialog = "createWorkspace" | "createChannel" | "inviteMember" | "newDm" | "llmManager" | "agentManager";
+export type SidebarSection = "channels" | "dms" | "ai" | "agents";
 
 function loadBool(key: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
@@ -54,6 +54,7 @@ export const useUiStore = create<State>((set, get) => ({
     channels: loadBool("pulse.sidebar.sec.channels", false),
     dms: loadBool("pulse.sidebar.sec.dms", false),
     ai: loadBool("pulse.sidebar.sec.ai", false),
+    agents: loadBool("pulse.sidebar.sec.agents", false),
   },
   openDialog: (dialog) => set({ dialog }),
   closeDialog: () => set({ dialog: null }),

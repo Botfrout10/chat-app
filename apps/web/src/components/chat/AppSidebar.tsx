@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AtSign,
   Bell,
+  Bot,
   BrainCircuit,
   ChevronDown,
   ChevronRight,
@@ -142,6 +143,11 @@ export function AppSidebar() {
   const { data: llmConnections } = useQuery({
     queryKey: ["llm-connections"],
     queryFn: () => api.llmConnections().catch(() => []),
+  });
+  const { data: agents } = useQuery({
+    queryKey: ["agents"],
+    queryFn: () => (api as any).agents().catch(() => []),
+    enabled: !!(me as any)?.id,
   });
 
   const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
@@ -360,6 +366,21 @@ export function AppSidebar() {
                 )}
                 title={checkingIds.has(c.id) ? "Checking…" : c.status}
               />
+            </SidebarButton>
+          ))}
+        </CollapsibleSection>
+
+        <CollapsibleSection sectionKey="agents" label="AGENTS" onAdd={() => openDialog("agentManager")} addTitle="Connect / manage agents">
+          {((agents as any[]) ?? []).length === 0 && (
+            <div className="px-2 text-xs text-sidebar-foreground/40">No agents connected.</div>
+          )}
+          {((agents as any[]) ?? []).map((a: any) => (
+            <SidebarButton key={a.id} onClick={() => openDialog("agentManager")} title={`${a.name} — ${a.endpoint ?? a.transport}`}>
+              <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)] shrink-0">
+                <Bot className="h-3 w-3" />
+              </span>
+              <span className="truncate flex-1">{a.name}</span>
+              <span className={cn("h-2 w-2 rounded-full shrink-0", a.status === "online" ? "bg-emerald-500" : a.status === "error" ? "bg-red-500" : a.status === "pending" ? "bg-amber-500" : "bg-sidebar-foreground/15")} title={a.status} />
             </SidebarButton>
           ))}
         </CollapsibleSection>

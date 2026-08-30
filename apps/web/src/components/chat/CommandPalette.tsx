@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AtSign,
+  Bot,
   BrainCircuit,
   CornerDownLeft,
   Hash,
@@ -75,6 +76,11 @@ export function CommandPalette() {
   const { data: llmConnections } = useQuery({
     queryKey: ["llm-connections"],
     queryFn: () => api.llmConnections().catch(() => []),
+    enabled: paletteOpen,
+  });
+  const { data: agents } = useQuery({
+    queryKey: ["agents"],
+    queryFn: () => (api as any).agents().catch(() => []),
     enabled: paletteOpen,
   });
   const { data: searchRes } = useQuery({
@@ -156,6 +162,19 @@ export function CommandPalette() {
           </CommandGroup>
         )}
 
+        {/* Agents */}
+        {((agents as any[]) ?? []).length > 0 && (
+          <CommandGroup heading="Agents">
+            {((agents as any[]) ?? []).map((a: any) => (
+              <CommandItem key={a.id} value={`agent ${a.name}`} onSelect={() => runAction(() => openDialog("agentManager"))}>
+                <Bot />
+                <span>{a.name}</span>
+                <span className="ml-auto text-xs text-[var(--muted-foreground)]">{a.status}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
         {/* Message search results */}
         {(searchRes as any[])?.length > 0 && debouncedQ.length >= 3 && (
           <>
@@ -192,6 +211,9 @@ export function CommandPalette() {
           </CommandItem>
           <CommandItem value="connect ai model llm manage" onSelect={() => runAction(() => openDialog("llmManager"))}>
             <BrainCircuit /> Manage AI models
+          </CommandItem>
+          <CommandItem value="connect agent acp manage" onSelect={() => runAction(() => openDialog("agentManager"))}>
+            <Bot /> Manage Agents
           </CommandItem>
         </CommandGroup>
 

@@ -78,6 +78,17 @@ export const api = {
   llmPreview: (baseUrl: string, apiKey?: string) => req(`/api/llm/preview`, { method: "POST", body: JSON.stringify({ baseUrl, ...(apiKey ? { apiKey } : {}) }) }),
   createLlmDm: (connectionId: string, workspaceId: string) =>
     req(`/api/llm/connections/${connectionId}/dm`, { method: "POST", body: JSON.stringify({ workspaceId }) }),
+
+  // Agent registrations (Phase B)
+  agents: () => req(`/api/agents`),
+  createAgent: (data: { name: string; workspaceId: string; transport?: string; endpoint?: string; authSecret?: string }) =>
+    req(`/api/agents`, { method: "POST", body: JSON.stringify(data) }),
+  deleteAgent: (id: string) => req(`/api/agents/${id}`, { method: "DELETE" }),
+  verifyAgent: (id: string) => req(`/api/agents/${id}/verify`, { method: "POST", body: JSON.stringify({}) }),
+  agentStatus: (id: string) => req(`/api/agents/${id}/status`),
+  agentPreview: (data: { endpoint: string; authSecret?: string; transport?: string }) =>
+    req(`/api/agents/preview`, { method: "POST", body: JSON.stringify(data) }),
+  updateAgent: (id: string, data: any) => req(`/api/agents/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
 };
 
 export { API_URL };
