@@ -89,6 +89,9 @@ export const api = {
   agentPreview: (data: { endpoint: string; authSecret?: string; transport?: string }) =>
     req(`/api/agents/preview`, { method: "POST", body: JSON.stringify(data) }),
   updateAgent: (id: string, data: any) => req(`/api/agents/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  promptAgent: (id: string, data: { channelId: string; content: string; parentId?: string | null }) =>
+    req(`/api/agents/${id}/prompt`, { method: "POST", body: JSON.stringify(data) }),
+  agentChannels: (id: string) => req(`/api/agents/${id}/channels`),
 };
 
 export { API_URL };

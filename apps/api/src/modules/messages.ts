@@ -5,6 +5,7 @@ import { message, channelMember, channel, reaction, attachment, workspaceMember,
 import { sendMessageSchema, editMessageSchema, reactionSchema } from "@chat/shared/schemas";
 import { enforceRate } from "../lib/rateLimit.js";
 import { maybeTriggerLlm, abortLlmGenerationForMessage } from "../lib/llm.js";
+import { abortAgentGenerationForMessage } from "../lib/agent.js";
 
 export async function registerMessageRoutes(app: FastifyInstance) {
   // list messages with cursor pagination: ?before=<ulid>&after=<ulid>&limit=50
@@ -238,6 +239,7 @@ export async function registerMessageRoutes(app: FastifyInstance) {
     const [updated] = await db.update(message).set({ content: parsed.data.content, editedAt: new Date() }).where(eq(message.id, id)).returning();
     // edited prompt = new intent; cancel any generation started from the old text
     abortLlmGenerationForMessage(id);
+    abortAgentGenerationForMessage(id);
     const redis = (app as any).redis;
     await redis.publish("chat:events", JSON.stringify({ type: "message:updated", channelId: msg.channelId, message: updated }));
     return updated;
@@ -255,6 +257,7 @@ export async function registerMessageRoutes(app: FastifyInstance) {
     const [deleted] = await db.update(message).set({ deletedAt: new Date(), content: "[deleted]" }).where(eq(message.id, id)).returning();
     // if this message had an LLM generation in flight, cancel it
     abortLlmGenerationForMessage(id);
+    abortAgentGenerationForMessage(id);
     const redis = (app as any).redis;
     await redis.publish("chat:events", JSON.stringify({ type: "message:deleted", channelId: msg.channelId, messageId: id }));
     return deleted;
