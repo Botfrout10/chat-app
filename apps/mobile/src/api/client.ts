@@ -275,6 +275,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ workspaceId }),
     }),
+
+  // agent registrations (Phase B) — minimal mobile: read + prompt
+  agents: () => req<any[]>("/api/agents"),
+  createAgent: (data: { name: string; workspaceId: string; transport?: string; endpoint?: string; authSecret?: string }) =>
+    req<any>("/api/agents", { method: "POST", body: JSON.stringify(data) }),
+  deleteAgent: (id: string) => req<{ ok: boolean }>(`/api/agents/${id}`, { method: "DELETE" }),
+  agentStatus: (id: string) => req<any>(`/api/agents/${id}/status`),
+  agentPreview: (data: { endpoint: string; authSecret?: string; transport?: string }) =>
+    req<any>("/api/agents/preview", { method: "POST", body: JSON.stringify(data) }),
+  promptAgent: (id: string, data: { channelId: string; content: string; parentId?: string | null }) =>
+    req<any>(`/api/agents/${id}/prompt`, { method: "POST", body: JSON.stringify(data) }),
 };
 
 export { ApiError };
