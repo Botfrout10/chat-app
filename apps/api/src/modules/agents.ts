@@ -36,59 +36,106 @@ type VerifyResult = {
 // For now we probe GET <endpoint> and optionally POST <endpoint>/initialize
 // with Bearer auth — agent-agnostic: we accept any 2xx and capture reported
 // name/version/capabilities if present. Stdio transport is not verified over network.
+function isHtmlResponse(text: string, contentType: string | null): boolean {
+  const ct = (contentType ?? "").toLowerCase();
+  if (ct.includes("text/html")) return true;
+  const t = text.trim().slice(0, 200).toLowerCase();
+  return t.startsWith("<!doctype") || t.startsWith("<html");
+}
+
+function basicAuthHeaders(secret?: string | null): Record<string, string> {
+  const h: Record<string, string> = { accept: "application/json" };
+  if (secret) h["authorization"] = `Basic ${Buffer.from(`opencode:${secret}`).toString("base64")}`;
+  return h;
+}
+
+async function fetchWithVerifyFallback(url: string, secret?: string | null, init: RequestInit = {}): Promise<Response> {
+  // try Basic (OpenCode) then Bearer (generic)
+  const bearer: Record<string, string> = secret ? { authorization: `Bearer ${secret}` } : {};
+  const basic = basicAuthHeaders(secret ?? null);
+  const tryHeaders = secret ? [basic, bearer] : [basic];
+  let lastRes: Response | null = null;
+  for (const h of tryHeaders) {
+    const merged = { ...init.headers, ...h } as Record<string, string>;
+    const r = await fetch(url, { ...init, headers: merged, signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS) } as any);
+    if (r.status !== 401 || !secret) return r;
+    lastRes = r;
+  }
+  return lastRes!;
+}
+
 async function verifyAgent(endpoint: string, authSecret?: string | null, transport: string = "network"): Promise<VerifyResult> {
   if (transport === "stdio") {
     return { ok: true, capabilities: { transport: "stdio" }, machineMetadata: null };
   }
   const url = normalizeEndpoint(endpoint);
-  // try a lightweight probe: GET <endpoint> then POST <endpoint>/initialize as fallback
-  try {
-    const headers = authHeaders(authSecret);
-    // 1) GET base
-    let res = await fetch(url, { headers, signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS) });
-    if (res.ok) {
+  // OpenCode `opencode serve` health & session probes; fallback to generic GET + /initialize
+  const probes: Array<{ url: string; label: string }> = [
+    { url: `${url}/global/health`, label: "OpenCode health" },
+    { url: `${url}/session`, label: "OpenCode session list" },
+    { url, label: "base" },
+  ];
+  for (const p of probes) {
+    try {
+      const res = await fetchWithVerifyFallback(p.url, authSecret ?? null, p.url === url ? {} : { headers: { accept: "application/json" } });
+      const text = await res.text().catch(() => "");
+      const ct = res.headers.get("content-type");
+      if (!res.ok) {
+        if (isHtmlResponse(text, ct)) {
+          return {
+            ok: false,
+            error: `Agent endpoint returned HTML at ${p.url} (${res.status}). You hit the web UI, not the API. If using OpenCode, run \`opencode serve --port 4096\` (not \`opencode acp\` which is stdio-only) and use http://localhost:4096. Verify via curl -s ${url}/global/health . Spec at ${url}/doc.`,
+          };
+        }
+        // try next probe on 404, otherwise surface error
+        if (res.status === 404) continue;
+        const hint = res.status === 401 ? " — Missing or invalid auth secret (try OPENCODE_SERVER_PASSWORD, user opencode)" : "";
+        return { ok: false, error: `Agent responded ${res.status} ${res.statusText}${hint}${text ? ` ${text.slice(0, 200)}` : ""}`.slice(0, 500) };
+      }
+      // ok — parse capabilities
       let capabilities: unknown = null;
       let machineMetadata: unknown = null;
       try {
-        const data = (await res.json()) as any;
-        capabilities = data?.capabilities ?? data?.agent ?? null;
+        const data = JSON.parse(text);
+        capabilities = data?.capabilities ?? data?.agent ?? data ?? null;
         machineMetadata = data?.machine ?? data?.machineMetadata ?? null;
+        if (!capabilities && data?.healthy) capabilities = { healthy: true, version: data.version };
         if (!capabilities && data?.name) capabilities = { name: data.name, version: data.version };
       } catch {
-        // non-JSON probe — still counts as reachable
+        // non-JSON but 200 — still reachable (e.g. /global/health returns {healthy:true})
       }
       return { ok: true, capabilities, machineMetadata };
-    }
-    // 2) try /initialize (ACP-style)
-    try {
-      const initRes = await fetch(`${url}/initialize`, {
-        method: "POST",
-        headers: { ...headers, "content-type": "application/json" },
-        body: JSON.stringify({ protocol: "acp", version: "0.1" }),
-        signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
-      });
-      if (initRes.ok) {
-        const data = (await initRes.json()) as any;
-        return {
-          ok: true,
-          capabilities: data?.capabilities ?? data ?? null,
-          machineMetadata: data?.machine ?? data?.machineMetadata ?? null,
-        };
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg.includes("fetch") || msg.includes("ECONNREFUSED")) {
+        // try next probe
+        continue;
       }
-      const detail = await initRes.text().catch(() => "");
-      return { ok: false, error: `Agent responded ${initRes.status} ${initRes.statusText}${detail ? ` ${detail.slice(0, 200)}` : ""}`.slice(0, 500) };
-    } catch (e2) {
-      const detail = await res.text().catch(() => "");
-      const hint = res.status === 401 ? " — Missing or invalid auth secret" : "";
-      const short = detail ? ` ${detail.slice(0, 200)}` : "";
-      // surface original GET error if initialize also failed to connect
-      if ((e2 as Error).message?.includes("fetch")) {
-        return { ok: false, error: `Agent responded ${res.status} ${res.statusText}${hint}${short}`.slice(0, 500) };
-      }
-      return { ok: false, error: `Agent unreachable: ${(e2 as Error).message}` };
+      return { ok: false, error: `Agent unreachable (${p.label} ${p.url}): ${msg}` };
     }
+  }
+  // final fallback: POST /initialize (ACP generic)
+  try {
+    const headers: Record<string, string> = { "content-type": "application/json", ...basicAuthHeaders(authSecret ?? null) };
+    const initRes = await fetch(`${url}/initialize`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ protocol: "acp", version: "0.1" }),
+      signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
+    });
+    const text = await initRes.text().catch(() => "");
+    const ct = initRes.headers.get("content-type");
+    if (initRes.ok) {
+      let data: any = null;
+      try { data = JSON.parse(text); } catch {}
+      return { ok: true, capabilities: data?.capabilities ?? data ?? null, machineMetadata: data?.machine ?? null };
+    }
+    if (isHtmlResponse(text, ct)) {
+      return { ok: false, error: `Agent returned HTML at ${url}/initialize — web UI, not API. Use opencode serve (http://localhost:4096).` };
+    }
+    return { ok: false, error: `Agent responded ${initRes.status} ${initRes.statusText}${text ? ` ${text.slice(0, 200)}` : ""}`.slice(0, 500) };
   } catch (e) {
-    return { ok: false, error: `Agent unreachable: ${(e as Error).message}` };
+    return { ok: false, error: `Agent unreachable: ${(e as Error).message}. Tip: for OpenCode run \`opencode serve --port 4096\` (not \`opencode acp\`), endpoint http://localhost:4096. Check ${url}/doc and ${url}/global/health.` };
   }
 }
 
