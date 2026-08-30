@@ -1044,7 +1044,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
                 )}
               </div>
               {!!agentStream.thinking && (
-                <Reasoning defaultOpen={!agentStream.text}>
+                <Reasoning defaultOpen>
                   <ReasoningTrigger className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]" />
                   <ReasoningContent className="max-h-64 overflow-y-auto break-words text-xs text-[var(--muted-foreground)]">
                     {agentStream.thinking}

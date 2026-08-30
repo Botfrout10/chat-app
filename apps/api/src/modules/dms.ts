@@ -32,8 +32,9 @@ export async function registerDmRoutes(app: FastifyInstance) {
         .where(eq(channelMember.channelId, ch.id));
       const peerRow = members.find((m: any) => m.u.id !== user.id);
       if (!peerRow) continue;
-      // hide bot peers (LLM) from friends list — they belong in AI MODELS
-      if (String(peerRow.u.email ?? "").endsWith("@llm.local")) continue;
+      // hide bot peers (LLM + agents) from friends list — they belong in AI MODELS / AGENTS
+      const peerEmail = String(peerRow.u.email ?? "");
+      if (peerEmail.endsWith("@llm.local") || peerEmail.endsWith("@agent.local")) continue;
       const myRow = members.find((m: any) => m.u.id === user.id);
       result.push({
         ...ch,

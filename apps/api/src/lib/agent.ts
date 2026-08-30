@@ -218,23 +218,22 @@ async function* streamViaOpenCodeSession(
   }
 
   if (promptAsyncOk) {
-    // Incremental polling: GET /session/:id/message repeatedly, diff text parts
-    const pollIntervalMs = 350;
+    // Incremental polling: GET /session/:id/message + GET /session/:id for status
+    const pollIntervalMs = 500;
     const deadline = Date.now() + GENERATION_TIMEOUT_MS;
     let prevText = "";
+    let prevReasoning = "";
     let prevToolCount = 0;
-    let stableTicks = 0;
-    let lastYieldAt = Date.now();
+    let consecutiveNoChange = 0;
+    const sessionStatusUrl = `${endpoint}/session/${sessionId}`;
+    const sessionListStatusUrl = `${endpoint}/session/status`;
     while (Date.now() < deadline) {
       if (signal.aborted) throw new Error("aborted");
       try {
         const res = await fetchWithAuthFallback(listUrl, secret, { headers: { accept: "application/json" } }, 5_000);
         const txt = await res.text().catch(() => "");
         if (!res.ok) {
-          if (isHtmlResponse(txt, res.headers.get("content-type"))) {
-            throw new Error(`poll returned HTML ${res.status} — web UI`);
-          }
-          // non-200 poll is transient, keep polling
+          if (isHtmlResponse(txt, res.headers.get("content-type"))) throw new Error(`poll returned HTML ${res.status} — web UI`);
           app.log.warn(`[agent:${agent.name}] poll ${res.status} ${txt.slice(0,100)}`);
         } else {
           let arr: any[] = [];
@@ -242,57 +241,83 @@ async function* streamViaOpenCodeSession(
             const j = JSON.parse(txt);
             arr = Array.isArray(j) ? j : j?.data ?? j?.messages ?? [];
           } catch {}
-          // arr is [{info, parts}] or [] — find last assistant message
           const assistantEntries = arr.filter((e: any) => (e?.info?.role ?? e?.role) === "assistant" || (e?.info?.type ?? e?.type) === "assistant");
           const last = assistantEntries.length ? assistantEntries[assistantEntries.length - 1] : arr[arr.length - 1];
           const parts: any[] = last?.parts ?? last?.message?.parts ?? [];
           const textParts = parts.filter((p: any) => p.type === "text" && typeof p.text === "string").map((p: any) => p.text).join("");
-          const toolParts = parts.filter((p: any) => p.type === "tool" || p.type === "tool_call" || p.tool);
-          // yield new text delta
+          const reasoningParts = parts.filter((p: any) => (p.type === "reasoning" || p.type === "thinking") && typeof p.text === "string").map((p: any) => p.text).join("");
+          const toolParts = parts.filter((p: any) => p.type === "tool" || p.type === "tool_call" || (p as any).tool);
+          let didYield = false;
           if (textParts.length > prevText.length) {
             const delta = textParts.slice(prevText.length);
             prevText = textParts;
-            lastYieldAt = Date.now();
-            stableTicks = 0;
-            // chunk delta into small pieces for smooth UI (like token streaming)
-            for (let i = 0; i < delta.length; i += 40) {
-              yield { type: "delta", text: delta.slice(i, i + 40) };
-            }
+            didYield = true;
+            for (let i = 0; i < delta.length; i += 40) yield { type: "delta", text: delta.slice(i, i + 40) };
+            app.log.info(`[agent:${agent.name}] poll delta +${delta.length} chars total ${prevText.length}`);
           }
-          // yield new tool calls
+          if (reasoningParts.length > prevReasoning.length) {
+            const delta = reasoningParts.slice(prevReasoning.length);
+            prevReasoning = reasoningParts;
+            didYield = true;
+            yield { type: "thinking", text: delta };
+            app.log.info(`[agent:${agent.name}] poll thinking +${delta.length} chars`);
+          }
           if (toolParts.length > prevToolCount) {
             for (let i = prevToolCount; i < toolParts.length; i++) {
               const p = toolParts[i];
-              const tool = p.tool ?? p.name ?? p.id ?? "tool";
-              yield { type: "tool_call", tool: String(tool), args: p.args ?? p.input ?? p.arguments, id: p.id };
-              if (p.output) yield { type: "tool_result", tool: String(tool), result: String(p.output).slice(0, 2000) };
+              const tool = (p as any).tool ?? (p as any).name ?? (p as any).id ?? "tool";
+              yield { type: "tool_call", tool: String(tool), args: (p as any).args ?? (p as any).input ?? (p as any).arguments, id: (p as any).id };
+              if ((p as any).output) yield { type: "tool_result", tool: String(tool), result: String((p as any).output).slice(0, 2000) };
             }
             prevToolCount = toolParts.length;
+            didYield = true;
+            app.log.info(`[agent:${agent.name}] poll tool calls ${toolParts.length}`);
           }
-          // yield reasoning if present
-          const reasoning = parts.filter((p: any) => p.type === "reasoning" && p.text).map((p: any) => p.text).join("");
-          if (reasoning && reasoning.length > 0) {
-            // reasoning is usually complete, not incremental — yield once
-            // we track via prevText? For now yield if not yet yielded
-            // simple: if we haven't yielded reasoning before and it's new
+          if (didYield) consecutiveNoChange = 0;
+          else consecutiveNoChange++;
+
+          // Check session idle via dedicated endpoint (more reliable than message status)
+          let sessionIdle = false;
+          try {
+            const sRes = await fetchWithAuthFallback(sessionStatusUrl, secret, { headers: { accept: "application/json" } }, 3_000);
+            if (sRes.ok) {
+              const sTxt = await sRes.text().catch(() => "");
+              const sData = JSON.parse(sTxt);
+              const s = sData?.session ?? sData ?? {};
+              const status = (s.status ?? s.state ?? "").toString().toLowerCase();
+              if (status === "idle" || status === "completed" || status === "finished" || status === "done") sessionIdle = true;
+              // also check global status map fallback
+            }
+          } catch {}
+          if (!sessionIdle) {
+            try {
+              const gRes = await fetchWithAuthFallback(sessionListStatusUrl, secret, { headers: { accept: "application/json" } }, 3_000);
+              if (gRes.ok) {
+                const gTxt = await gRes.text().catch(() => "");
+                const gData = JSON.parse(gTxt);
+                const entry = gData?.[sessionId] ?? gData?.data?.[sessionId];
+                const st = (entry?.status ?? entry?.state ?? "").toString().toLowerCase();
+                if (st === "idle" || st === "completed" || st === "finished") sessionIdle = true;
+              }
+            } catch {}
           }
-          const status = last?.info?.status ?? last?.status ?? "";
-          const isDone = status === "completed" || status === "finished" || status === "idle" || status === "done";
-          if (isDone && textParts.length > 0) {
-            app.log.info(`[agent:${agent.name}] polling detected completed status ${status} with ${textParts.length} chars`);
-            break;
-          }
-          // heuristic: if no new data for ~2s after having some text, assume done
-          if (prevText.length > 0 && Date.now() - lastYieldAt > 2500) {
-            stableTicks++;
-            if (stableTicks >= 6) {
-              app.log.info(`[agent:${agent.name}] polling stable for 2.5s, ending with ${prevText.length} chars`);
+          const msgStatus = (last?.info?.status ?? last?.status ?? "").toString().toLowerCase();
+          const isMsgDone = ["completed", "finished", "idle", "done"].includes(msgStatus);
+          if ((sessionIdle || isMsgDone) && (prevText.length > 0 || prevToolCount > 0)) {
+            // ensure we fetched final text after idle — one more poll to confirm no new delta
+            if (consecutiveNoChange >= 2) {
+              app.log.info(`[agent:${agent.name}] polling detected idle/completed (sessionIdle=${sessionIdle} msgStatus=${msgStatus}) with ${prevText.length} chars, done`);
               break;
             }
           }
-          // also check session status endpoint for completion
-          if (arr.length === 0) {
-            // no messages yet, keep polling
+          // Only consider stalled if session is idle; while busy, keep polling even without new text (tools running)
+          if (!sessionIdle && prevText.length === 0 && toolParts.length === 0) {
+            // still generating but no output yet (e.g. running docker ps) — keep polling
+            consecutiveNoChange = 0;
+          }
+          if (sessionIdle && consecutiveNoChange >= 6) {
+            app.log.info(`[agent:${agent.name}] polling idle + stable 3s, ending with ${prevText.length} chars`);
+            break;
           }
         }
       } catch (e) {
@@ -302,7 +327,7 @@ async function* streamViaOpenCodeSession(
       await new Promise((r) => setTimeout(r, pollIntervalMs));
       if (signal.aborted) break;
     }
-    if (prevText) return; // we already yielded streaming deltas, finish
+    if (prevText || prevReasoning || prevToolCount > 0) return;
     app.log.info(`[agent:${agent.name}] polling yielded no text, falling back to blocking POST ${messageUrl}`);
   }
 

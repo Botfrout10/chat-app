@@ -18,8 +18,9 @@ type Msg = {
   content: string;
   reasoning?: string | null;
   llmConnectionId?: string | null;
+  agentId?: string | null;
   senderId: string;
-  sender?: { name: string; image?: string | null };
+  sender?: { name: string; image?: string | null; email?: string | null };
   createdAt: string;
   editedAt?: string | null;
   deletedAt?: string | null;
@@ -76,7 +77,7 @@ function MessageItemInner({
   }, [msg.reactions, meId]);
   // assistant messages render as streaming markdown instead of mention-chip rich text.
   // stored rows lack llmConnectionId — in model DMs every reply is from the bot.
-  const isAi = isAiChannel || !!msg.llmConnectionId;
+  const isAi = isAiChannel || !!msg.llmConnectionId || !!(msg as any).agentId || String((msg as any).sender?.email ?? "").endsWith("@agent.local");
 
   async function handleEdit() {
     if (!editContent.trim()) return;
@@ -128,9 +129,9 @@ function MessageItemInner({
           {isOwn && isAiChannel && aiReadStatus && <AiReadReceipt status={aiReadStatus} />}
         </div>
 
-        {/* reasoning collapsible stays outside the bubble, full width of its side */}
+        {/* reasoning collapsible stays outside the bubble, full width of its side — keep open for agents */}
         {msg.reasoning ? (
-          <Reasoning className={`${isOwn ? "self-end" : ""} w-fit max-w-full`} defaultOpen={false}>
+          <Reasoning className={`${isOwn ? "self-end" : ""} w-fit max-w-full`} defaultOpen={!!(msg as any).agentId || String((msg as any).sender?.email ?? "").endsWith("@agent.local")}>
             <ReasoningTrigger className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
               <BrainCircuit className="h-3.5 w-3.5" /> Thinking
             </ReasoningTrigger>
