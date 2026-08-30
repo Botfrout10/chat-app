@@ -66,7 +66,8 @@ Full chat parity with web; bearer-token auth; push notifications deferred to pha
 ## Remaining / next up
 
 - [x] Web polish: palette jump-to-message highlight — `CommandPalette` now calls `goToMessage(channelId, messageId)` → `store/chat.ts:highlightedMessageId` → `ChannelView` scrolls `msg-<id>` into view with `ring` highlight (2.5s auto-clear) + fetches around-window (`?before`/`?after`) if not in current pages; `MessageItem` has `id=msg-<id>` + highlight ring
-- [ ] Web polish (remaining): PromptInput native attachment integration (presign flow kept custom), dark-mode audit of new shadcn dialogs
+- [x] Web polish: PromptInput native attachment hardening — `ChannelView.tsx:ChatComposer` now `maxFiles={10} maxFileSize={25*1024*1024} onError→toast`, `uploadAttachmentPart` checks size + `PUT` status and throws; `prompt-input.tsx` `maxFiles`/`maxFileSize` validation already wired (pre-existing)
+- [x] Web polish: dark-mode audit — `dialog.tsx`/`alert-dialog.tsx` overlay `dark:bg-black/40` (was `bg-black/10` invisible on dark), verified `Dialog`/`AlertDialog`/`CommandDialog`/`Input`/`Popover` all use `bg-popover`/`bg-input`/`var(--border)` tokens, scrollbar thumb `dark` variant present; no hard `bg-white` leaks except intentional hero glass
 - [ ] Push notifications (phase 2): device token registry migration, `POST /api/push/register`, expo-server-sdk delivery in notifications worker, deep links
 - [ ] Search v2 (`tsvector` GIN), OpenSearch
 

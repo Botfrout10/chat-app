@@ -87,8 +87,18 @@ function ChatComposer({
   placeholder?: string;
   queuedCount?: number;
 }) {
+  // 25 MB cap mirrors presignSchema max; must stay in sync with apps/api/src/modules/attachments.ts:41 + packages/shared/src/schemas.ts:31
+  const MAX_FILE_SIZE = 25 * 1024 * 1024;
+  const MAX_FILES = 10;
+  const handleAttachmentError = (err: { code: string; message: string }) => {
+    if (err.code === "max_file_size") toast.error(`File too large — max ${MAX_FILE_SIZE / (1024 * 1024)} MB`);
+    else if (err.code === "max_files") toast.error(`Too many files — max ${MAX_FILES} per message`);
+    else if (err.code === "accept") toast.error(err.message);
+    else toast.error(err.message);
+  };
+
   return (
-    <PromptInput onSubmit={onSubmit} multiple globalDrop>
+    <PromptInput onSubmit={onSubmit} multiple globalDrop maxFiles={MAX_FILES} maxFileSize={MAX_FILE_SIZE} onError={handleAttachmentError}>
       {replyTo && (
         <PromptInputHeader>
           <div className="flex w-full items-center gap-1 text-xs text-[var(--primary)] bg-[var(--accent-50)] dark:bg-[var(--sidebar-muted)] border border-[var(--border)] rounded-lg px-3 py-2">
@@ -383,10 +393,12 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   /** Upload a staged attachment part (data URL) via presigned PUT. */
   async function uploadAttachmentPart(part: FileUIPart) {
     const blob = await (await fetch(part.url!)).blob();
+    if (blob.size > 25 * 1024 * 1024) throw new Error(`File too large — max 25 MB (got ${(blob.size / (1024 * 1024)).toFixed(1)} MB)`);
     const mime = part.mediaType || blob.type || "application/octet-stream";
     const filename = part.filename || "attachment";
     const presigned: any = await api.presign({ filename, mime, size: blob.size });
-    await fetch(presigned.url, { method: "PUT", body: blob, headers: { "Content-Type": mime } });
+    const putRes = await fetch(presigned.url, { method: "PUT", body: blob, headers: { "Content-Type": mime } });
+    if (!putRes.ok) throw new Error(`Upload failed ${putRes.status} ${putRes.statusText}`);
     return { key: presigned.key as string, filename: presigned.filename as string, mime: presigned.mime as string, size: presigned.size as number };
   }
 
