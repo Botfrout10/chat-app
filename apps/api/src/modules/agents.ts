@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ulid } from "ulid";
-import { and, asc, eq } from "drizzle-orm";
-import { agentRegistration, workspaceMember, channel, channelMember } from "@chat/db/schema";
+import { and, asc, desc, eq } from "drizzle-orm";
+import { agentRegistration, workspaceMember, channel, channelMember, agentSession, agentSkill } from "@chat/db/schema";
 import { createAgentRegistrationSchema, updateAgentRegistrationSchema } from "@chat/shared/schemas";
 import { enforceRate } from "../lib/rateLimit.js";
 import { triggerAgentReply } from "../lib/agent.js";
@@ -382,13 +382,13 @@ export async function registerAgentRoutes(app: FastifyInstance) {
   });
 
   // prompt an agent — creates a human message in the agent's workspace channel and streams the reply
-  // Body: { channelId, content, parentId? } — channel must belong to the agent's workspace
+  // Body: { channelId, content, parentId?, sessionId?, queueMode? } — channel must belong to the agent's workspace
   app.post("/api/agents/:id/prompt", async (req, reply) => {
     const user = await (app as any).getSessionUser(req);
     if (!user) return reply.code(401).send({ error: "Unauthorized" });
     if (!(await enforceRate(app.redis, req, reply, { name: "agent-prompt", max: 20, windowMs: 60_000, subject: user.id }))) return;
     const { id } = req.params as any;
-    const parsed = z.object({ channelId: z.string().min(1), content: z.string().min(1).max(4000), parentId: z.string().optional().nullable() }).safeParse(req.body);
+    const parsed = z.object({ channelId: z.string().min(1), content: z.string().min(1).max(4000), parentId: z.string().optional().nullable(), sessionId: z.string().optional().nullable(), queueMode: z.enum(["queue", "interrupt"]).optional() }).safeParse(req.body);
     if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
     const dbi = db();
     const [agent] = await dbi.select().from(agentRegistration).where(and(eq(agentRegistration.id, id), eq(agentRegistration.ownerId, user.id)));
@@ -403,11 +403,25 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       if (!wm) return reply.code(403).send({ error: "Forbidden" });
       await dbi.insert(channelMember).values({ channelId: ch.id, userId: user.id }).onConflictDoNothing();
     }
+    // verify session if provided belongs to agent+channel
+    let sessionId: string | null = parsed.data.sessionId ?? null;
+    if (sessionId) {
+      const [sess] = await dbi.select().from(agentSession).where(and(eq(agentSession.id, sessionId), eq(agentSession.agentId, agent.id)));
+      if (!sess) return reply.code(404).send({ error: "Session not found" });
+      if (sess.channelId !== ch.id) return reply.code(400).send({ error: "Session does not belong to channel" });
+    }
+    if (parsed.data.queueMode === "interrupt" && sessionId) {
+      const { abortAgentGenerationForMessage } = await import("../lib/agent.js");
+      // interrupt not prompt-specific — we abort per session? For now abort generating for last prompt? Use qKey
+      // For simplicity, publish interrupt event and let worker abort
+      await (app as any).redis.publish("chat:events", JSON.stringify({ type: "agent:interrupt", channelId: ch.id, agentId: agent.id, sessionId }));
+    }
 
     // create human prompt message
     const { ulid } = await import("ulid");
     const { message } = await import("@chat/db/schema");
     const promptId = ulid();
+    // slash command handling: normalize "/skill args" remains as content but frontend shows UI hint; no server rewrite needed
     const [promptMsg] = await dbi
       .insert(message)
       .values({ id: promptId, channelId: ch.id, senderId: user.id, parentId: parsed.data.parentId ?? null, content: parsed.data.content })
@@ -415,10 +429,183 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const withSender = { ...promptMsg, sender: user, attachments: [], reactions: [] };
     await (app as any).redis.publish("chat:events", JSON.stringify({ type: "message:new", channelId: ch.id, message: withSender }));
 
-    // fire-and-forget ACP streaming (publish agent:* then final message:new)
-    void triggerAgentReply(app, { agent, channelId: ch.id, promptMessageId: promptId });
+    // fire-and-forget ACP streaming (publish agent:* then final message:new) — supports queue-while-streaming
+    void triggerAgentReply(app, { agent, channelId: ch.id, promptMessageId: promptId, sessionId });
 
-    return withSender;
+    return { ...withSender, sessionId, queued: false };
+  });
+
+  // sessions: list/create/update/terminate per channel
+  app.get("/api/agents/:id/sessions", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const { channelId } = req.query as any;
+    const [agent] = await db().select().from(agentRegistration).where(and(eq(agentRegistration.id, id), eq(agentRegistration.ownerId, user.id)));
+    if (!agent) return reply.code(404).send({ error: "Agent not found" });
+    const conditions: any[] = [eq(agentSession.agentId, agent.id)];
+    if (channelId) conditions.push(eq(agentSession.channelId, channelId));
+    const rows = await db().select().from(agentSession).where(and(...conditions)).orderBy(desc(agentSession.lastUsedAt));
+    return rows;
+  });
+
+  app.post("/api/agents/:id/sessions", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const parsed = z.object({ channelId: z.string().min(1), title: z.string().min(1).max(120).optional(), systemPrompt: z.string().max(4000).optional().nullable(), parentSessionId: z.string().optional().nullable() }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    const dbi = db();
+    const [agent] = await dbi.select().from(agentRegistration).where(and(eq(agentRegistration.id, id), eq(agentRegistration.ownerId, user.id)));
+    if (!agent) return reply.code(404).send({ error: "Agent not found" });
+    const [ch] = await dbi.select().from(channel).where(eq(channel.id, parsed.data.channelId));
+    if (!ch || ch.workspaceId !== agent.workspaceId) return reply.code(400).send({ error: "Channel does not belong to agent workspace" });
+    const { createAgentSessionRow } = await import("../lib/agent.js");
+    const row = await createAgentSessionRow(app, agent, parsed.data.channelId, { title: parsed.data.title, systemPrompt: parsed.data.systemPrompt ?? null, parentSessionId: parsed.data.parentSessionId ?? null });
+    return row;
+  });
+
+  app.patch("/api/agents/:id/sessions/:sessionId", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id, sessionId } = req.params as any;
+    const parsed = z.object({ title: z.string().min(1).max(120).optional(), systemPrompt: z.string().max(8000).optional().nullable(), status: z.enum(["active", "archived"]).optional() }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    const dbi = db();
+    const [agent] = await dbi.select().from(agentRegistration).where(and(eq(agentRegistration.id, id), eq(agentRegistration.ownerId, user.id)));
+    if (!agent) return reply.code(404).send({ error: "Agent not found" });
+    const [sess] = await dbi.select().from(agentSession).where(and(eq(agentSession.id, sessionId), eq(agentSession.agentId, agent.id)));
+    if (!sess) return reply.code(404).send({ error: "Session not found" });
+    const patch: any = {};
+    if (parsed.data.title !== undefined) patch.title = parsed.data.title;
+    if (parsed.data.systemPrompt !== undefined) patch.systemPrompt = parsed.data.systemPrompt;
+    if (parsed.data.status !== undefined) patch.status = parsed.data.status;
+    patch.lastUsedAt = new Date();
+    const [updated] = await dbi.update(agentSession).set(patch).where(eq(agentSession.id, sessionId)).returning();
+    await (app as any).redis.publish("chat:events", JSON.stringify({ type: "agent:session:updated", channelId: updated.channelId, agentId: agent.id, session: updated }));
+    return updated;
+  });
+
+  app.post("/api/agents/:id/sessions/:sessionId/terminate", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id, sessionId } = req.params as any;
+    const dbi = db();
+    const [agent] = await dbi.select().from(agentRegistration).where(and(eq(agentRegistration.id, id), eq(agentRegistration.ownerId, user.id)));
+    if (!agent) return reply.code(404).send({ error: "Agent not found" });
+    const [sess] = await dbi.select().from(agentSession).where(and(eq(agentSession.id, sessionId), eq(agentSession.agentId, agent.id)));
+    if (!sess) return reply.code(404).send({ error: "Session not found" });
+    // try remote delete best-effort
+    if (sess.opencodeSessionId) {
+      try {
+        const endpoint = (agent.endpoint ?? "").replace(/\/+$/, "");
+        const { decryptApiKey } = await import("../lib/crypto.js");
+        const secret = decryptApiKey((agent as any).authSecretEncrypted) ?? (agent as any).authSecret ?? null;
+        const headers: Record<string, string> = {};
+        if (secret) headers["authorization"] = `Bearer ${secret}`;
+        await fetch(`${endpoint}/session/${sess.opencodeSessionId}`, { method: "DELETE", headers }).catch(() => {});
+      } catch {}
+    }
+    const [updated] = await dbi.update(agentSession).set({ status: "archived" }).where(eq(agentSession.id, sessionId)).returning();
+    const { invalidateSessionCache } = await import("../lib/agent.js");
+    invalidateSessionCache(agent.id, updated.channelId);
+    await (app as any).redis.publish("chat:events", JSON.stringify({ type: "agent:session:archived", channelId: updated.channelId, agentId: agent.id, sessionId }));
+    return updated;
+  });
+
+  // skills: list available (proxied) and per-agent enable/disable
+  app.get("/api/agents/:id/skills", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const [agent] = await db().select().from(agentRegistration).where(and(eq(agentRegistration.id, id), eq(agentRegistration.ownerId, user.id)));
+    if (!agent) return reply.code(404).send({ error: "Agent not found" });
+    const dbi = db();
+    const rows = await dbi.select().from(agentSkill).where(eq(agentSkill.agentId, agent.id));
+    // also try to fetch remote available skills for display
+    let remote: any = null;
+    try {
+      const endpoint = (agent.endpoint ?? "").replace(/\/+$/, "");
+      const res = await fetch(`${endpoint}/skills`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(3000) }).catch(() => null);
+      if (res?.ok) remote = await res.json().catch(() => null);
+    } catch {}
+    return { skills: rows, remote };
+  });
+
+  app.patch("/api/agents/:id/skills", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const parsed = z.object({ skills: z.array(z.object({ skillId: z.string().min(1).max(80), enabled: z.boolean(), scope: z.enum(["workspace", "session"]).optional(), sessionId: z.string().optional().nullable(), config: z.any().optional() })) }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    const dbi = db();
+    const [agent] = await dbi.select().from(agentRegistration).where(and(eq(agentRegistration.id, id), eq(agentRegistration.ownerId, user.id)));
+    if (!agent) return reply.code(404).send({ error: "Agent not found" });
+    const results = [];
+    for (const s of parsed.data.skills) {
+      const existing = await dbi.select().from(agentSkill).where(and(eq(agentSkill.agentId, agent.id), eq(agentSkill.skillId, s.skillId), eq(agentSkill.scope, (s.scope ?? "workspace") as any)));
+      if (existing.length) {
+        const [upd] = await dbi.update(agentSkill).set({ enabled: s.enabled, config: s.config ?? null }).where(eq(agentSkill.id, existing[0].id)).returning();
+        results.push(upd);
+      } else {
+        const [ins] = await dbi.insert(agentSkill).values({ id: (await import("ulid")).ulid(), agentId: agent.id, skillId: s.skillId, enabled: s.enabled, scope: s.scope ?? "workspace", sessionId: s.sessionId ?? null, config: s.config ?? null }).returning();
+        results.push(ins);
+      }
+    }
+    return results;
+  });
+
+  // config: systemPrompt, transportFlavor etc
+  app.patch("/api/agents/:id/config", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const parsed = z.object({ systemPrompt: z.string().max(8000).optional().nullable(), transportFlavor: z.enum(["opencode-http", "acp-generic"]).optional(), name: z.string().min(1).max(80).optional() }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    const dbi = db();
+    const [agent] = await dbi.select().from(agentRegistration).where(and(eq(agentRegistration.id, id), eq(agentRegistration.ownerId, user.id)));
+    if (!agent) return reply.code(404).send({ error: "Agent not found" });
+    const patch: any = {};
+    if (parsed.data.systemPrompt !== undefined) patch.systemPrompt = parsed.data.systemPrompt;
+    if (parsed.data.transportFlavor !== undefined) patch.transportFlavor = parsed.data.transportFlavor;
+    if (parsed.data.name !== undefined) patch.name = parsed.data.name;
+    const [updated] = await dbi.update(agentRegistration).set(patch).where(eq(agentRegistration.id, id)).returning();
+    const sanitized = (() => { const { authSecret, authSecretEncrypted, ...rest } = updated as any; return { ...rest, hasAuthSecret: !!(authSecretEncrypted ?? authSecret) }; })();
+    return sanitized;
+  });
+
+  // permission / question handling: forward to remote
+  app.post("/api/agents/:id/approve", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const parsed = z.object({ permissionId: z.string().min(1), decision: z.enum(["allow", "deny", "always"]), sessionId: z.string().optional().nullable() }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    const [agent] = await db().select().from(agentRegistration).where(and(eq(agentRegistration.id, id), eq(agentRegistration.ownerId, user.id)));
+    if (!agent) return reply.code(404).send({ error: "Agent not found" });
+    // proxy to opencode if possible: POST /session/:id/permissions/:pid
+    try {
+      const endpoint = (agent.endpoint ?? "").replace(/\/+$/, "");
+      const targetSess = parsed.data.sessionId ?? null;
+      if (targetSess && endpoint) {
+        await fetch(`${endpoint}/session/${targetSess}/permissions/${parsed.data.permissionId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision: parsed.data.decision }) }).catch(() => {});
+      }
+    } catch {}
+    await (app as any).redis.publish("chat:events", JSON.stringify({ type: "agent:permission:resolved", agentId: agent.id, permissionId: parsed.data.permissionId, decision: parsed.data.decision }));
+    return { ok: true };
+  });
+
+  app.post("/api/agents/:id/answer", async (req, reply) => {
+    const user = await (app as any).getSessionUser(req);
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    const { id } = req.params as any;
+    const parsed = z.object({ questionId: z.string().min(1), answer: z.string().min(1).max(4000), sessionId: z.string().optional().nullable() }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
+    const [agent] = await db().select().from(agentRegistration).where(and(eq(agentRegistration.id, id), eq(agentRegistration.ownerId, user.id)));
+    if (!agent) return reply.code(404).send({ error: "Agent not found" });
+    // create a message as answer and also notify agent via channel? For now just publish and trigger follow-up
+    await (app as any).redis.publish("chat:events", JSON.stringify({ type: "agent:question:answered", agentId: agent.id, questionId: parsed.data.questionId, answer: parsed.data.answer }));
+    return { ok: true };
   });
 
   // list channels for an agent's workspace (convenience for UI to pick a task thread)

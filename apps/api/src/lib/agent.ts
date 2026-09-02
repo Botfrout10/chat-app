@@ -107,59 +107,149 @@ async function fetchWithAuthFallback(
 }
 
 // ---------------------------------------------------------------------------
-// OpenCode session cache: one OpenCode session per (agentId, channelId)
+// OpenCode session cache: one OpenCode session per (agentId, channelId) persisted in DB
 // ---------------------------------------------------------------------------
 
-const sessionCache = new Map<string, string>(); // key `${agentId}:${channelId}` -> opencode sessionId
+const sessionCache = new Map<string, string>(); // key `${agentId}:${channelId}` -> opencode sessionId (L1)
 const sessionCreateInFlight = new Map<string, Promise<string>>();
+const sessionRowCache = new Map<string, any>(); // key -> agentSession row
+
+export async function getActiveAgentSessionRow(app: FastifyInstance, agentId: string, channelId: string) {
+  const db = (app as any).db;
+  const { agentSession } = await import("@chat/db/schema");
+  const rows = await db
+    .select()
+    .from(agentSession)
+    .where(and(eq(agentSession.agentId, agentId), eq(agentSession.channelId, channelId), eq(agentSession.status, "active" as any)))
+    .orderBy(desc(agentSession.lastUsedAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createAgentSessionRow(
+  app: FastifyInstance,
+  agent: AgentRow,
+  channelId: string,
+  opts: { title?: string; systemPrompt?: string | null; parentSessionId?: string | null } = {},
+  signal?: AbortSignal,
+): Promise<any> {
+  const db = (app as any).db;
+  const { agentSession } = await import("@chat/db/schema");
+  const endpoint = (agent.endpoint ?? "").replace(/\/+$/, "");
+  if (!endpoint) throw new Error("Agent has no endpoint");
+  const secret = getAgentSecret(agent);
+  const title = opts.title ?? `pulse-${channelId.slice(0, 8)}-${ulid().slice(-4)}`;
+  const body: any = { title };
+  const sys = opts.systemPrompt ?? (agent as any).systemPrompt ?? null;
+  if (sys) body.systemPrompt = sys;
+  const url = `${endpoint}/session`;
+  app.log.info(`[agent:${agent.name}] creating OpenCode session at ${url} for channel ${channelId} title=${title}`);
+  const res = await fetchWithAuthFallback(url, secret, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: signal ?? AbortSignal.timeout(10_000),
+  });
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    const ct = res.headers.get("content-type");
+    if (isHtmlResponse(text, ct)) {
+      throw new Error(
+        `Agent endpoint returned HTML (got web UI) — expected OpenCode API. URL ${url} returned ${res.status}. ` +
+          `If you ran \`opencode acp\`, that is stdio-only. Run \`opencode serve --port 4096\` instead and use http://localhost:4096 as endpoint. Spec at ${endpoint}/doc.`,
+      );
+    }
+    throw new Error(`Create session failed ${res.status} ${res.statusText}${text ? ` ${text.slice(0, 300)}` : ""}`);
+  }
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Create session returned non-JSON: ${text.slice(0, 300)}`);
+  }
+  const opencodeId = data?.id ?? data?.session?.id ?? data?.data?.id;
+  if (!opencodeId) throw new Error(`Create session response missing id: ${text.slice(0, 300)}`);
+  const row = await db
+    .insert(agentSession)
+    .values({
+      id: ulid(),
+      agentId: agent.id,
+      channelId,
+      opencodeSessionId: opencodeId,
+      title,
+      systemPrompt: sys,
+      status: "active",
+      parentSessionId: opts.parentSessionId ?? null,
+    })
+    .returning()
+    .then((r: any) => r[0]);
+  const key = `${agent.id}:${channelId}`;
+  sessionCache.set(key, opencodeId);
+  sessionRowCache.set(key, row);
+  app.log.info(`[agent:${agent.name}] session ${opencodeId} (${row.id}) created for channel ${channelId}`);
+  return row;
+}
 
 async function getOrCreateOpenCodeSession(
   app: FastifyInstance,
   agent: AgentRow,
   channelId: string,
   signal?: AbortSignal,
+  opts: { sessionId?: string | null } = {},
 ): Promise<string> {
+  // explicit sessionId override (for multi-session per channel)
+  if (opts.sessionId) {
+    const db = (app as any).db;
+    const { agentSession } = await import("@chat/db/schema");
+    const [row] = await db.select().from(agentSession).where(eq(agentSession.id, opts.sessionId));
+    if (row?.opencodeSessionId) return row.opencodeSessionId;
+    if (row && !row.opencodeSessionId) {
+      // row exists but no remote id yet — create remote now
+      const created = await createAgentSessionRow(app, agent, channelId, { title: row.title, systemPrompt: row.systemPrompt }, signal);
+      return created.opencodeSessionId!;
+    }
+  }
   const key = `${agent.id}:${channelId}`;
   const cached = sessionCache.get(key);
   if (cached) return cached;
   const inflight = sessionCreateInFlight.get(key);
   if (inflight) return inflight;
 
-  const endpoint = (agent.endpoint ?? "").replace(/\/+$/, "");
-  if (!endpoint) throw new Error("Agent has no endpoint");
-  const secret = getAgentSecret(agent);
-
   const p = (async () => {
-    const url = `${endpoint}/session`;
-    app.log.info(`[agent:${agent.name}] creating OpenCode session at ${url} for channel ${channelId}`);
-    const res = await fetchWithAuthFallback(url, secret, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: `pulse-${channelId.slice(0, 8)}` }),
-      signal: signal ?? AbortSignal.timeout(10_000),
-    });
-    const text = await res.text().catch(() => "");
-    if (!res.ok) {
-      const ct = res.headers.get("content-type");
-      if (isHtmlResponse(text, ct)) {
-        throw new Error(
-          `Agent endpoint returned HTML (got web UI) — expected OpenCode API. URL ${url} returned ${res.status}. ` +
-            `If you ran \`opencode acp\`, that is stdio-only. Run \`opencode serve --port 4096\` instead and use http://localhost:4096 as endpoint. Spec at ${endpoint}/doc.`,
-        );
+    // try DB active session first
+    const existing = await getActiveAgentSessionRow(app, agent.id, channelId);
+    if (existing?.opencodeSessionId) {
+      // quick liveness probe (best-effort, fail-open)
+      try {
+        const endpoint = (agent.endpoint ?? "").replace(/\/+$/, "");
+        const secret = getAgentSecret(agent);
+        const probe = await fetchWithAuthFallback(`${endpoint}/session/${existing.opencodeSessionId}`, secret, { headers: { accept: "application/json" } }, 3000);
+        if (probe.ok) {
+          sessionCache.set(key, existing.opencodeSessionId);
+          sessionRowCache.set(key, existing);
+          // touch lastUsed
+          const { agentSession } = await import("@chat/db/schema");
+          await (app as any).db.update(agentSession).set({ lastUsedAt: new Date() }).where(eq(agentSession.id, existing.id));
+          return existing.opencodeSessionId;
+        }
+        // stale (404) — archive and recreate
+        if (probe.status === 404) {
+          const { agentSession } = await import("@chat/db/schema");
+          await (app as any).db.update(agentSession).set({ status: "archived" }).where(eq(agentSession.id, existing.id));
+        } else {
+          // other error — reuse stale but log
+          sessionCache.set(key, existing.opencodeSessionId);
+          return existing.opencodeSessionId;
+        }
+      } catch {
+        // network fail — reuse stale
+        sessionCache.set(key, existing.opencodeSessionId);
+        return existing.opencodeSessionId;
       }
-      throw new Error(`Create session failed ${res.status} ${res.statusText}${text ? ` ${text.slice(0, 300)}` : ""}`);
     }
-    let data: any;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error(`Create session returned non-JSON: ${text.slice(0, 300)}`);
-    }
-    const sessionId = data?.id ?? data?.session?.id ?? data?.data?.id;
-    if (!sessionId) throw new Error(`Create session response missing id: ${text.slice(0, 300)}`);
-    sessionCache.set(key, sessionId);
-    app.log.info(`[agent:${agent.name}] session ${sessionId} created for channel ${channelId}`);
-    return sessionId;
+    // create new persisted session
+    const row = await createAgentSessionRow(app, agent, channelId, {}, signal);
+    return row.opencodeSessionId!;
   })();
   sessionCreateInFlight.set(key, p);
   try {
@@ -167,6 +257,11 @@ async function getOrCreateOpenCodeSession(
   } finally {
     sessionCreateInFlight.delete(key);
   }
+}
+
+export function invalidateSessionCache(agentId: string, channelId: string) {
+  sessionCache.delete(`${agentId}:${channelId}`);
+  sessionRowCache.delete(`${agentId}:${channelId}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +274,9 @@ type AgentStreamEvent =
   | { type: "tool_call"; tool: string; args?: unknown; id?: string }
   | { type: "tool_result"; tool: string; result: string }
   | { type: "plan"; text: string }
-  | { type: "permission"; text: string; id?: string };
+  | { type: "permission"; text: string; id?: string }
+  | { type: "question"; text: string; id?: string }
+  | { type: "subagent"; text: string; id?: string };
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
@@ -190,12 +287,13 @@ async function* streamViaOpenCodeSession(
   channelId: string,
   latestUserContent: string,
   signal: AbortSignal,
+  opts: { sessionId?: string | null } = {},
 ): AsyncGenerator<AgentStreamEvent> {
   const endpoint = (agent.endpoint ?? "").replace(/\/+$/, "");
   const secret = getAgentSecret(agent);
   if (!endpoint) throw new Error("Agent has no endpoint");
 
-  const sessionId = await getOrCreateOpenCodeSession(app, agent, channelId, signal);
+  const sessionId = await getOrCreateOpenCodeSession(app, agent, channelId, signal, opts);
   const promptAsyncUrl = `${endpoint}/session/${sessionId}/prompt_async`;
   const messageUrl = `${endpoint}/session/${sessionId}/message`;
   const listUrl = `${endpoint}/session/${sessionId}/message`;
@@ -280,6 +378,34 @@ async function* streamViaOpenCodeSession(
             didYield = true;
             app.log.info(`[agent:${agent.name}] poll tool calls ${toolParts.length}`);
           }
+          // permission / question / plan / subagent parts (opencode ACP)
+          const permParts = parts.filter((p: any) => p.type === "permission" && typeof (p.text ?? p.message) === "string");
+          if (permParts.length) {
+            const lastPerm = permParts[permParts.length - 1];
+            const permText = String(lastPerm.text ?? lastPerm.message ?? "");
+            if (permText && !prevText.includes(permText.slice(0, 20))) {
+              yield { type: "permission", text: permText, id: lastPerm.id ?? lastPerm.permissionId };
+              didYield = true;
+            }
+          }
+          const questionParts = parts.filter((p: any) => (p.type === "question" || p.type === "ask") && typeof (p.text ?? p.question) === "string");
+          if (questionParts.length) {
+            const lastQ = questionParts[questionParts.length - 1];
+            const qText = String(lastQ.text ?? lastQ.question ?? lastQ.message ?? "");
+            if (qText) {
+              yield { type: "question", text: qText, id: lastQ.id ?? lastQ.questionId };
+              didYield = true;
+            }
+          }
+          const planParts = parts.filter((p: any) => p.type === "plan" && typeof p.text === "string");
+          if (planParts.length) {
+            const lastPlan = planParts[planParts.length - 1];
+            if (lastPlan.text) { yield { type: "plan", text: String(lastPlan.text) }; didYield = true; }
+          }
+          const subParts = parts.filter((p: any) => p.type === "subagent" && typeof p.text === "string");
+          if (subParts.length) {
+            for (const sp of subParts) { yield { type: "subagent", text: String(sp.text), id: sp.id }; didYield = true; }
+          }
           if (didYield) consecutiveNoChange = 0;
           else consecutiveNoChange++;
 
@@ -334,7 +460,27 @@ async function* streamViaOpenCodeSession(
       await new Promise((r) => setTimeout(r, pollIntervalMs));
       if (signal.aborted) break;
     }
-    if (prevText || prevReasoning || prevToolCount > 0) return;
+    if (prevText || prevReasoning || prevToolCount > 0) {
+      // final drain: one more fetch to capture any trailing delta that arrived between last poll and idle
+      try {
+        const finalRes = await fetchWithAuthFallback(listUrl, secret, { headers: { accept: "application/json" } }, 5_000);
+        const finalTxt = await finalRes.text().catch(() => "");
+        if (finalRes.ok) {
+          const fj = JSON.parse(finalTxt);
+          const farr: any[] = Array.isArray(fj) ? fj : fj?.data ?? fj?.messages ?? [];
+          const fEntries = farr.filter((e: any) => (e?.info?.role ?? e?.role) === "assistant" || (e?.info?.type ?? e?.type) === "assistant");
+          const flast = fEntries.length ? fEntries[fEntries.length - 1] : farr[farr.length - 1];
+          const fparts: any[] = flast?.parts ?? flast?.message?.parts ?? [];
+          const ftext = fparts.filter((p: any) => p.type === "text" && typeof p.text === "string").map((p: any) => p.text).join("");
+          if (ftext.length > prevText.length) {
+            const delta = ftext.slice(prevText.length);
+            for (let i = 0; i < delta.length; i += 40) yield { type: "delta", text: delta.slice(i, i + 40) };
+            prevText = ftext;
+          }
+        }
+      } catch {}
+      if (prevText.trim() || prevToolCount > 0) return;
+    }
     app.log.info(`[agent:${agent.name}] polling yielded no text, falling back to blocking POST ${messageUrl}`);
   }
 
@@ -448,18 +594,19 @@ async function* streamAgent(
   channelId: string,
   messages: ChatMessage[],
   signal: AbortSignal,
+  opts: { sessionId?: string | null } = {},
 ): AsyncGenerator<AgentStreamEvent> {
   const endpoint = (agent.endpoint ?? "").replace(/\/+$/, "");
-  // Heuristic: OpenCode serve exposes /global/health and /session — try that first
-  const isLikelyOpenCode = endpoint.includes("4096") || endpoint.includes("opencode");
+  const flavor = (agent as any).transportFlavor ?? "opencode-http";
+  const isLikelyOpenCode = flavor === "opencode-http" || endpoint.includes("4096") || endpoint.includes("opencode");
   if (isLikelyOpenCode) {
     const latest = messages[messages.length - 1]?.content ?? "";
     // strip "user: " prefix if present
     const clean = latest.replace(/^[^:]+:\s*/, "");
-    yield* streamViaOpenCodeSession(app, agent, channelId, clean, signal);
+    yield* streamViaOpenCodeSession(app, agent, channelId, clean, signal, { sessionId: opts.sessionId });
     return;
   }
-  // fallback to generic
+  // fallback to generic ACP
   yield* streamGeneric(agent, messages, signal);
 }
 
@@ -507,7 +654,7 @@ async function checkRateLimit(redis: any, ownerId: string): Promise<boolean> {
   }
 }
 
-async function assembleContext(db: any, channelId: string, agentName: string): Promise<ChatMessage[]> {
+async function assembleContext(db: any, channelId: string, agentName: string, botId?: string): Promise<ChatMessage[]> {
   const rows = await db
     .select({ senderId: message.senderId, content: message.content })
     .from(message)
@@ -521,22 +668,54 @@ async function assembleContext(db: any, channelId: string, agentName: string): P
   const chats: ChatMessage[] = [
     { role: "system", content: `You are "${agentName}", an AI agent connected via ACP. Reply concisely. Messages are prefixed with author name when known.` },
     ...history.map((r: any) => ({
-      role: r.senderId === names.get(r.senderId) ? ("assistant" as const) : ("user" as const),
+      role: botId && r.senderId === botId ? ("assistant" as const) : ("user" as const),
       content: `${names.get(r.senderId) ?? "user"}: ${r.content}`,
     })),
   ];
   return chats;
 }
 
+function queueKey(agentId: string, channelId: string, sessionId?: string | null) {
+  return `${agentId}:${sessionId ?? channelId}`;
+}
+
 export async function triggerAgentReply(
   app: FastifyInstance,
-  args: { agent: AgentRow; channelId: string; promptMessageId?: string },
+  args: { agent: AgentRow; channelId: string; promptMessageId?: string; sessionId?: string | null },
 ): Promise<boolean> {
   const db = (app as any).db;
   const redis = (app as any).redis;
+  const qKey = queueKey(args.agent.id, args.channelId, args.sessionId ?? null);
 
-  if (generating.has(args.agent.id)) {
-    app.log.info(`[agent:${args.agent.name}] skip — already generating`);
+  if (generating.has(qKey)) {
+    // queue-while-streaming via BullMQ
+    try {
+      const { getAgentQueue } = await import("./queue.js");
+      const queue = getAgentQueue();
+      const waiting = await queue.getWaitingCount().catch(() => 0);
+      await queue.add("prompt", { agentId: args.agent.id, channelId: args.channelId, sessionId: args.sessionId ?? null, promptMessageId: args.promptMessageId }, { jobId: args.promptMessageId ?? undefined });
+      await redis.publish("chat:events", JSON.stringify({ type: "agent:ack", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, queued: true, queuePosition: waiting + 1, promptMessageId: args.promptMessageId }));
+      await redis.publish("chat:events", JSON.stringify({ type: "agent:queue", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, depth: waiting + 1 }));
+      app.log.info(`[agent:${args.agent.name}] queued prompt ${args.promptMessageId} (queue depth ${waiting + 1})`);
+      return true;
+    } catch (e) {
+      app.log.error(`[agent:${args.agent.name}] queue failed: ${(e as Error).message}`);
+      return false;
+    }
+  }
+  return triggerAgentReplyInternal(app, args);
+}
+
+export async function triggerAgentReplyInternal(
+  app: FastifyInstance,
+  args: { agent: AgentRow; channelId: string; promptMessageId?: string; sessionId?: string | null },
+): Promise<boolean> {
+  const db = (app as any).db;
+  const redis = (app as any).redis;
+  const qKey = queueKey(args.agent.id, args.channelId, args.sessionId ?? null);
+
+  if (generating.has(qKey)) {
+    app.log.info(`[agent:${args.agent.name}] skip (internal) — already generating ${qKey}`);
     return false;
   }
   const ownerId = (args.agent as any).ownerId as string;
@@ -544,18 +723,20 @@ export async function triggerAgentReply(
     await redis.publish("chat:events", JSON.stringify({ type: "agent:error", channelId: args.channelId, agentId: args.agent.id, error: "Rate limit: too many agent prompts, try again shortly." }));
     return false;
   }
-  generating.add(args.agent.id);
+  generating.add(qKey);
 
   const controller = new AbortController();
   const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(GENERATION_TIMEOUT_MS)]);
   if (args.promptMessageId) trackPrompt(args.promptMessageId, args.agent.id, controller);
 
-  app.log.info(`[agent:${args.agent.name}] trigger reply in channel ${args.channelId}${args.promptMessageId ? ` for prompt ${args.promptMessageId}` : ""}`);
-  await redis.publish("chat:events", JSON.stringify({ type: "agent:typing", channelId: args.channelId, agentId: args.agent.id, isTyping: true }));
+  app.log.info(`[agent:${args.agent.name}] trigger reply in channel ${args.channelId}${args.promptMessageId ? ` for prompt ${args.promptMessageId}` : ""}${args.sessionId ? ` session ${args.sessionId}` : ""}`);
+  // immediate ack feedback
+  await redis.publish("chat:events", JSON.stringify({ type: "agent:ack", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, promptMessageId: args.promptMessageId, queued: false }));
+  await redis.publish("chat:events", JSON.stringify({ type: "agent:typing", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, isTyping: true }));
 
   try {
     const bot = await ensureAgentBotUser(app, args.agent);
-    const messages = await assembleContext(db, args.channelId, args.agent.name);
+    const messages = await assembleContext(db, args.channelId, args.agent.name, bot.id);
     for (const m of messages) {
       if (m.content.startsWith(`${bot.name}: `)) m.content = m.content.slice(`${bot.name}: `.length);
     }
@@ -563,22 +744,26 @@ export async function triggerAgentReply(
     let full = "";
     let reasoning = "";
     const toolCalls: Array<{ tool: string; args?: unknown }> = [];
-    for await (const evt of streamAgent(app, args.agent, args.channelId, messages, signal)) {
+    for await (const evt of streamAgent(app, args.agent, args.channelId, messages, signal, { sessionId: args.sessionId ?? null })) {
       if (evt.type === "thinking") {
         reasoning += evt.text;
-        await redis.publish("chat:events", JSON.stringify({ type: "agent:thinking", channelId: args.channelId, agentId: args.agent.id, delta: evt.text }));
+        await redis.publish("chat:events", JSON.stringify({ type: "agent:thinking", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, delta: evt.text }));
       } else if (evt.type === "delta") {
         full += evt.text;
-        await redis.publish("chat:events", JSON.stringify({ type: "agent:delta", channelId: args.channelId, agentId: args.agent.id, delta: evt.text }));
+        await redis.publish("chat:events", JSON.stringify({ type: "agent:delta", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, delta: evt.text }));
       } else if (evt.type === "tool_call") {
         toolCalls.push({ tool: evt.tool, args: evt.args });
-        await redis.publish("chat:events", JSON.stringify({ type: "agent:tool", channelId: args.channelId, agentId: args.agent.id, tool: evt.tool, args: evt.args, id: evt.id }));
+        await redis.publish("chat:events", JSON.stringify({ type: "agent:tool", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, tool: evt.tool, args: evt.args, id: evt.id }));
       } else if (evt.type === "tool_result") {
-        await redis.publish("chat:events", JSON.stringify({ type: "agent:tool_result", channelId: args.channelId, agentId: args.agent.id, tool: evt.tool, result: evt.result }));
+        await redis.publish("chat:events", JSON.stringify({ type: "agent:tool_result", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, tool: evt.tool, result: evt.result }));
       } else if (evt.type === "plan") {
-        await redis.publish("chat:events", JSON.stringify({ type: "agent:plan", channelId: args.channelId, agentId: args.agent.id, text: evt.text }));
+        await redis.publish("chat:events", JSON.stringify({ type: "agent:plan", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, text: evt.text }));
       } else if (evt.type === "permission") {
-        await redis.publish("chat:events", JSON.stringify({ type: "agent:permission", channelId: args.channelId, agentId: args.agent.id, text: evt.text, id: evt.id }));
+        await redis.publish("chat:events", JSON.stringify({ type: "agent:permission", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, text: evt.text, id: evt.id }));
+      } else if (evt.type === "question") {
+        await redis.publish("chat:events", JSON.stringify({ type: "agent:question", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, text: evt.text, id: evt.id }));
+      } else if (evt.type === "subagent") {
+        await redis.publish("chat:events", JSON.stringify({ type: "agent:subagent", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, text: evt.text, id: evt.id }));
       }
     }
     if (!full.trim() && toolCalls.length === 0) throw new Error("Agent returned an empty response");
@@ -588,23 +773,49 @@ export async function triggerAgentReply(
       .insert(message)
       .values({ id, channelId: args.channelId, senderId: bot.id, content: full.trim() || `[tool: ${toolCalls.map((t) => t.tool).join(", ")}]`, reasoning: reasoning.trim() || null })
       .returning();
-    const withSender = { ...msg, sender: bot, attachments: [], reactions: [], agentId: args.agent.id };
+    const withSender = { ...msg, sender: bot, attachments: [], reactions: [], agentId: args.agent.id, sessionId: args.sessionId ?? null };
     app.log.info(`[agent:${args.agent.name}] reply ${id} with ${full.length} chars, ${toolCalls.length} tool calls`);
-    await redis.publish("chat:events", JSON.stringify({ type: "message:new", channelId: args.channelId, agentId: args.agent.id, message: withSender }));
+    await redis.publish("chat:events", JSON.stringify({ type: "message:new", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, message: withSender }));
     await db.update(agentRegistration).set({ status: "online", lastHeartbeatAt: new Date() }).where(eq(agentRegistration.id, args.agent.id));
+    // touch session lastUsed
+    if (args.sessionId) {
+      const { agentSession } = await import("@chat/db/schema");
+      await db.update(agentSession).set({ lastUsedAt: new Date() }).where(eq(agentSession.id, args.sessionId));
+    } else {
+      // touch default session for channel
+      const row = await getActiveAgentSessionRow(app, args.agent.id, args.channelId);
+      if (row) {
+        const { agentSession } = await import("@chat/db/schema");
+        await db.update(agentSession).set({ lastUsedAt: new Date() }).where(eq(agentSession.id, row.id));
+      }
+    }
     return true;
   } catch (e) {
     const cancelled = controller.signal.aborted;
     app.log.error(`agent generation ${cancelled ? "cancelled" : "failed"} (${args.agent.name}): ${(e as Error).message}`);
     if (!cancelled) {
-      await redis.publish("chat:events", JSON.stringify({ type: "agent:error", channelId: args.channelId, agentId: args.agent.id, error: (e as Error).message }));
+      await redis.publish("chat:events", JSON.stringify({ type: "agent:error", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, error: (e as Error).message }));
       await db.update(agentRegistration).set({ status: "error" }).where(eq(agentRegistration.id, args.agent.id));
     }
     return false;
   } finally {
-    generating.delete(args.agent.id);
+    generating.delete(qKey);
     if (args.promptMessageId) untrackPrompt(args.promptMessageId, args.agent.id, controller);
-    await redis.publish("chat:events", JSON.stringify({ type: "agent:typing", channelId: args.channelId, agentId: args.agent.id, isTyping: false }));
+    await redis.publish("chat:events", JSON.stringify({ type: "agent:typing", channelId: args.channelId, agentId: args.agent.id, sessionId: args.sessionId ?? null, isTyping: false }));
+    // if queued jobs waiting for this session, drain next
+    try {
+      const { getAgentQueue } = await import("./queue.js");
+      const q = getAgentQueue();
+      const waiting = await q.getJobs(["waiting"], 0, 0, true);
+      const next = waiting.find((j: any) => {
+        const d = j.data as any;
+        return d.agentId === args.agent.id && (d.sessionId ?? null) === (args.sessionId ?? null) && (d.channelId === args.channelId);
+      });
+      if (next) {
+        // let worker handle it, but if no worker, trigger directly
+        // worker will pick it up; no need to manually trigger
+      }
+    } catch {}
   }
 }
 

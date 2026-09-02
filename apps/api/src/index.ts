@@ -21,6 +21,7 @@ import { registerAgentRoutes } from "./modules/agents.js";
 import { registerPushRoutes } from "./modules/push.js";
 import { setupSocket } from "./modules/socket.js";
 import { startNotificationWorker, stopNotificationWorker } from "./workers/notifications.js";
+import { startAgentWorker, stopAgentWorker } from "./workers/agent.js";
 import { closeQueue } from "./lib/queue.js";
 import { enforceRate, registerRateLimitCommands } from "./lib/rateLimit.js";
 
@@ -169,6 +170,7 @@ io.adapter(createAdapter(pubClient, subClient));
 setupSocket(io, { db, redis, auth });
 
 startNotificationWorker();
+startAgentWorker(app);
 
 app.log.info("Socket.IO ready with Redis adapter");
 
@@ -177,6 +179,7 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, async () => {
     app.log.info(`Received ${sig}, closing`);
     await stopNotificationWorker();
+    await stopAgentWorker();
     await closeQueue();
     await io.close();
     await app.close();
