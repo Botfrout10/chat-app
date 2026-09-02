@@ -5,6 +5,17 @@ import { RichText, AttachmentPreview } from "./RichText";
 import { BrainCircuit, CornerUpLeft, MessagesSquare, Pencil, ThumbsUp, Heart, Laugh, Trash2 } from "lucide-react";
 import { AiReadReceipt, DmReadReceipt } from "./ReadReceipt";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+import {
   Message,
   MessageAction,
   MessageActions,
@@ -63,6 +74,7 @@ function MessageItemInner({
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
   const [showActions, setShowActions] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const groupedReactions = useMemo(() => {
@@ -86,8 +98,13 @@ function MessageItemInner({
   }
 
   async function handleDelete() {
-    if (!confirm("Delete this message?")) return;
-    await api.deleteMessage(msg.id);
+    try {
+      await api.deleteMessage(msg.id);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setConfirmOpen(false);
+    }
   }
 
   async function toggleReaction(emoji: string, byMe: boolean) {
@@ -214,11 +231,23 @@ function MessageItemInner({
           {isOwn && (
             <>
               <MessageAction tooltip="Edit" onClick={() => setEditing(true)}><Pencil className="h-3.5 w-3.5" /></MessageAction>
-              <MessageAction tooltip="Delete" onClick={handleDelete} className="text-[var(--destructive)] hover:bg-red-50 dark:hover:bg-red-950/40"><Trash2 className="h-3.5 w-3.5" /></MessageAction>
+              <MessageAction tooltip="Delete" onClick={() => setConfirmOpen(true)} className="text-[var(--destructive)] hover:bg-red-50 dark:hover:bg-red-950/40"><Trash2 className="h-3.5 w-3.5" /></MessageAction>
             </>
           )}
         </MessageActions>
       )}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete message?</AlertDialogTitle>
+            <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-[var(--destructive)] text-white hover:bg-[var(--destructive)]/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

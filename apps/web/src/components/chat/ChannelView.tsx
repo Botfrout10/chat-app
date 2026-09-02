@@ -443,7 +443,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       const s = getSocket();
       s.emit("typing:stop", { channelId });
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
       throw e;
     }
   }
@@ -456,7 +456,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       for (const f of files) atts.push(await uploadAttachmentPart(f));
       await send(text, atts);
     } catch (e) {
-      alert("Upload failed: " + (e as Error).message);
+      toast.error("Upload failed: " + (e as Error).message);
       throw e;
     } finally {
       setUploading(false);
