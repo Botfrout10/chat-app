@@ -91,6 +91,8 @@ export const message = pgTable("message", {
   // chain-of-thought / thinking output from reasoning models (AI messages)
   reasoning: text("reasoning"),
   nonce: varchar("nonce", { length: 64 }),
+  // full-text search vector (english) — maintained by trigger, GIN indexed
+  searchVector: text("search_vector"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   editedAt: timestamp("edited_at", { withTimezone: true }),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -98,7 +100,6 @@ export const message = pgTable("message", {
   index("message_channel_id_idx").on(t.channelId, t.id),
   index("message_parent_idx").on(t.parentId),
   index("message_nonce_idx").on(t.channelId, t.nonce),
-  // for FTS we create index via sql migration
 ]);
 
 export const attachment = pgTable("attachment", {
@@ -189,7 +190,8 @@ export const agentRegistration = pgTable("agent_registration", {
   name: varchar("name", { length: 80 }).notNull(), // human label shown in sidebar
   transport: varchar("transport", { length: 20 }).notNull().default("network").$type<"network" | "stdio">(),
   endpoint: text("endpoint"), // ws(s)/http URL for the networked ACP transport
-  authSecret: text("auth_secret"), // ACP auth token; encryption-at-rest deferred to Phase C
+  authSecret: text("auth_secret"), // deprecated plaintext — migrated to authSecretEncrypted, kept for rollback
+  authSecretEncrypted: text("auth_secret_encrypted"), // AES-GCM encrypted (see lib/crypto.ts)
   status: varchar("status", { length: 20 }).notNull().default("pending").$type<"pending" | "online" | "offline" | "error">(),
   capabilities: jsonb("capabilities"), // handshake-reported: agent name/version, tools…
   machineMetadata: jsonb("machine_metadata"), // os, hostname, arch…
@@ -198,6 +200,18 @@ export const agentRegistration = pgTable("agent_registration", {
 }, (t) => [
   index("agent_owner_idx").on(t.ownerId),
   index("agent_workspace_idx").on(t.workspaceId),
+]);
+
+export const pushToken = pgTable("push_token", {
+  id: text("id").primaryKey(), // ulid
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(), // ExponentPushToken[...]
+  platform: varchar("platform", { length: 20 }).notNull().$type<"ios" | "android">(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("push_token_user_idx").on(t.userId),
+  index("push_token_token_idx").on(t.token),
 ]);
 
 // Relations

@@ -57,6 +57,13 @@
       "when": 1787945581957,
       "tag": "0007_mellow_moon_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788369046243,
+      "tag": "0008_sweet_gorgon",
+      "breakpoints": true
     }
   ]
 }
