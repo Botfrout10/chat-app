@@ -29,8 +29,28 @@ const app = Fastify({ logger: true });
 
 const allowedOrigins = [env.WEB_URL, "http://localhost:3000", ...env.EXTRA_ORIGINS];
 
+// Dev: allow Expo Go, emulator, and any LAN IP (phone + laptop must share the same Wi-Fi).
+// RN fetch often sends no Origin; browser/Expo web sends http://<lan>:8081; Expo Go can send exp://.
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return true; // React Native / curl — no Origin header
+  if (allowedOrigins.includes(origin)) return true;
+  if (origin.startsWith("exp://")) return true;
+  if (/^http:\/\/localhost:\d+$/.test(origin)) return true;
+  if (/^http:\/\/10\.\d+\.\d+\.\d+:\d+$/.test(origin)) return true; // emulator 10.0.2.2
+  if (/^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)) return true; // LAN
+  if (/^http:\/\/172\.\d+\.\d+\.\d+:\d+$/.test(origin)) return true; // WSL/Hyper-V LAN
+  return false;
+}
+
 await app.register(cors, {
-  origin: allowedOrigins,
+  origin: (origin, cb) => {
+    // In dev, be permissive so a stale EXPO_PUBLIC_API_URL or new LAN subnet doesn't block.
+    // In prod, only allow known origins.
+    if (process.env.NODE_ENV !== "production" && !origin) return cb(null, true);
+    if (isAllowedOrigin(origin)) return cb(null, true);
+    if (process.env.NODE_ENV !== "production") return cb(null, true);
+    cb(new Error("Not allowed by CORS"), false);
+  },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
@@ -159,7 +179,14 @@ app.log.info(`API listening on ${env.HOST}:${env.PORT}`);
 
 // Socket.IO on same http server
 const io = new IOServer(app.server, {
-  cors: { origin: allowedOrigins, credentials: true },
+  cors: {
+    origin: (origin, cb) => {
+      if (isAllowedOrigin(origin)) return cb(null, true);
+      if (process.env.NODE_ENV !== "production") return cb(null, true);
+      cb(new Error("Not allowed by CORS"), false);
+    },
+    credentials: true,
+  },
   path: "/socket.io",
 });
 

@@ -116,13 +116,18 @@ export default function Chats() {
   });
   const dmList = ((globalDmsQuery.data as any) ?? []) as Channel[];
 
-  const [collapsed, setCollapsed] = useState({ channels: false, models: false, dms: false });
+  const [collapsed, setCollapsed] = useState({ channels: false, models: false, dms: false, agents: false });
   const toggle = (k: keyof typeof collapsed) => setCollapsed((s) => ({ ...s, [k]: !s[k] }));
 
   // AI model connections
   const llmQuery = useQuery({
     queryKey: ["llm-connections"],
     queryFn: () => api.llmConnections(),
+    enabled: !!activeWorkspaceId,
+  });
+  const agentsQuery = useQuery({
+    queryKey: ["agents"],
+    queryFn: () => (api as any).agents().catch(() => []),
     enabled: !!activeWorkspaceId,
   });
   const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
@@ -174,6 +179,23 @@ export default function Chats() {
       setLlmError(e instanceof Error ? e.message : "Failed to open model chat");
     } finally {
       setLlmOpening(null);
+    }
+  }
+  const [agentOpening, setAgentOpening] = useState<string | null>(null);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  async function openAgentDm(agent: any) {
+    if (!activeWorkspaceId) return;
+    setAgentOpening(agent.id);
+    setAgentError(null);
+    try {
+      const ch: any = await (api as any).createAgentDm(agent.id, activeWorkspaceId);
+      await queryClient.invalidateQueries({ queryKey: ["channels", activeWorkspaceId] });
+      await queryClient.invalidateQueries({ queryKey: ["dms"] });
+      router.push({ pathname: "/channel/[id]", params: { id: ch.id, name: agent.name, type: "dm", agentId: agent.id } as any });
+    } catch (e) {
+      setAgentError(e instanceof Error ? e.message : "Failed to open agent chat");
+    } finally {
+      setAgentOpening(null);
     }
   }
 
@@ -295,7 +317,7 @@ export default function Chats() {
                 atTopRef.current = e.nativeEvent.contentOffset.y <= 4;
               }}
               scrollEventThrottle={16}
-              data={[{ kind: "channels" as const }, { kind: "models" as const }, { kind: "dms" as const }]}
+              data={[{ kind: "channels" as const }, { kind: "models" as const }, { kind: "agents" as const }, { kind: "dms" as const }]}
               keyExtractor={(item) => item.kind}
               renderItem={({ item }) =>
               item.kind === "channels" ? (
@@ -370,6 +392,50 @@ export default function Chats() {
                   {!collapsed.models && !!llmError && (
                     <Text style={{ color: t.destructive, fontSize: 12, paddingHorizontal: 16 }}>{llmError}</Text>
                   )}
+                </Section>
+              ) : item.kind === "agents" ? (
+                <Section
+                  title={`Agents${(agentsQuery.data as any[])?.length ? ` — ${(agentsQuery.data as any[]).length}` : ""}`}
+                  collapsed={collapsed.agents}
+                  onToggle={() => toggle("agents")}
+                >
+                  {!collapsed.agents && ((agentsQuery.data as any[]) ?? []).map((agent: any) => (
+                    <Pressable
+                      key={agent.id}
+                      disabled={agentOpening === agent.id}
+                      onPress={() => openAgentDm(agent)}
+                      style={({ pressed }) => [styles.row, { opacity: pressed || agentOpening === agent.id ? 0.6 : 1 }]}
+                    >
+                      <View style={[rowStyles.hashWrap, { backgroundColor: t.muted }]}>
+                        <Ionicons name="hardware-chip-outline" size={14} color={t.primary} />
+                      </View>
+                      <Text style={[styles.rowTitle, { color: t.foreground, flex: 1 }]} numberOfLines={1}>
+                        {agent.name}
+                      </Text>
+                      {agentOpening === agent.id ? (
+                        <ActivityIndicator color={t.primary} size="small" />
+                      ) : (
+                        <View
+                          style={[
+                            rowStyles.dot,
+                            {
+                              backgroundColor:
+                                agent.status === "online"
+                                  ? t.success
+                                  : agent.status === "error"
+                                    ? t.destructive
+                                    : agent.status === "pending"
+                                      ? t.warning
+                                      : t.border,
+                              borderColor: t.background,
+                            },
+                          ]}
+                        />
+                      )}
+                    </Pressable>
+                  ))}
+                  {!collapsed.agents && !agentsQuery.isPending && !((agentsQuery.data as any[]) ?? []).length && <Empty text="No agents connected" />}
+                  {!collapsed.agents && !!agentError && <Text style={{ color: t.destructive, fontSize: 12, paddingHorizontal: 16 }}>{agentError}</Text>}
                 </Section>
               ) : (
                 <Section

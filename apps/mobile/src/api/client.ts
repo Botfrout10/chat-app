@@ -24,22 +24,37 @@ export const API_URL =
   process.env.EXPO_PUBLIC_API_URL ??
   (Platform.OS === "android" ? "http://10.0.2.2:3001" : "http://localhost:3001");
 
+if (__DEV__) {
+  // Surface the resolved API URL early so stale .env.local is obvious in Metro logs.
+  console.log(`[api] API_URL=${API_URL} (EXPO_PUBLIC_API_URL=${process.env.EXPO_PUBLIC_API_URL ?? "unset"})`);
+  if (Platform.OS === "android" && API_URL.includes("localhost")) {
+    console.warn(
+      `[api] API_URL uses localhost on Android — emulator needs http://10.0.2.2:3001, physical device needs http://<your-LAN-IP>:3001 (run ipconfig, check Wi-Fi IPv4). If using a physical device, set EXPO_PUBLIC_API_URL in apps/mobile/.env.local and restart with --clear.`,
+    );
+  }
+}
+
 /**
  * MinIO presigned URLs are generated with S3_ENDPOINT host (often localhost/minio).
- * Android emulator cannot reach localhost — rewrite to 10.0.2.2 so Image fetch/PUT succeeds.
+ * Android cannot reach localhost — rewrite to the API host so Image fetch/PUT succeeds.
+ * Derives the target host from API_URL: 10.0.2.2 for emulator, LAN IP for physical device.
  * iOS simulator and web keep localhost.
  */
 export function rewriteAssetUrl(url: string): string {
   if (Platform.OS !== "android") return url;
+  let targetHost = "10.0.2.2";
+  try {
+    targetHost = new URL(API_URL).hostname;
+  } catch {}
   try {
     const u = new URL(url);
     if (u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "minio") {
-      u.hostname = "10.0.2.2";
+      u.hostname = targetHost;
       return u.toString();
     }
   } catch {
     // fallback simple replace for non-URL strings
-    return url.replace(/\/\/(localhost|minio|127\.0\.0\.1)(?=[:/])/g, "//10.0.2.2");
+    return url.replace(/\/\/(localhost|minio|127\.0\.0\.1)(?=[:/])/g, `//${targetHost}`);
   }
   return url;
 }
@@ -81,7 +96,22 @@ async function req<T = unknown>(path: string, opts: RequestInit = {}): Promise<T
   try {
     res = await fetch(`${API_URL}${path}`, { ...opts, headers, signal: controller.signal });
   } catch (e) {
-    throw new ApiError(0, e instanceof Error && e.name === "AbortError" ? "Request timed out — check that the app points at your computer's IP" : `Network error: cannot reach ${API_URL}`);
+    const raw = e instanceof Error ? e.message : String(e);
+    const isAbort = e instanceof Error && e.name === "AbortError";
+    const isNoRoute = /NoRouteToHost|EHOSTUNREACH|ENETUNREACH|Network request failed/i.test(raw);
+    if (isAbort) {
+      throw new ApiError(
+        0,
+        `Request timed out — cannot reach ${API_URL}. Check: phone & laptop on same Wi-Fi, EXPO_PUBLIC_API_URL=http://<LAN-IP>:3001 in apps/mobile/.env.local (ipconfig → Wi-Fi IPv4, now 192.168.19.1), restart Expo with --clear, API on 0.0.0.0:3001.`,
+      );
+    }
+    if (isNoRoute) {
+      throw new ApiError(
+        0,
+        `Host unreachable — cannot reach ${API_URL} (${raw}). Your .env.local was 192.168.1.93 (stale); current Wi-Fi IP is 192.168.19.1. Fix: update apps/mobile/.env.local → EXPO_PUBLIC_API_URL=http://192.168.19.1:3001, restart Expo --clear. Emulator: use http://10.0.2.2:3001 or adb reverse tcp:3001 tcp:3001. Physical device: must share Wi-Fi with laptop.`,
+      );
+    }
+    throw new ApiError(0, `Network error: cannot reach ${API_URL} (${raw}). Check EXPO_PUBLIC_API_URL and that API is listening on 0.0.0.0:3001.`);
   } finally {
     clearTimeout(timer);
   }
@@ -121,11 +151,20 @@ type AttachmentMeta = { key: string; filename: string; mime: string; size: numbe
 export const api = {
   // auth (Better-Auth + bearer plugin: token is in `set-auth-token` header, not just body)
   authSignUp: async (email: string, password: string, name: string) => {
-    const res = await fetch(`${API_URL}/api/auth/sign-up/email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, name }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/api/auth/sign-up/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, name }),
+      });
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      if (/NoRouteToHost|EHOSTUNREACH|ENETUNREACH|Network request failed/i.test(raw)) {
+        throw new ApiError(0, `Host unreachable — cannot reach ${API_URL}. Update apps/mobile/.env.local to http://192.168.19.1:3001 (current Wi-Fi IP) and restart Expo --clear. Emulator: use 10.0.2.2.`);
+      }
+      throw new ApiError(0, `Network error: cannot reach ${API_URL} (${raw})`);
+    }
     const headerToken =
       res.headers.get("set-auth-token") ?? res.headers.get("Set-Auth-Token") ?? res.headers.get("set_auth_token");
     const text = await res.text();
@@ -146,11 +185,20 @@ export const api = {
     return { token: String(token), user };
   },
   authSignIn: async (email: string, password: string) => {
-    const res = await fetch(`${API_URL}/api/auth/sign-in/email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/api/auth/sign-in/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      if (/NoRouteToHost|EHOSTUNREACH|ENETUNREACH|Network request failed/i.test(raw)) {
+        throw new ApiError(0, `Host unreachable — cannot reach ${API_URL}. Update apps/mobile/.env.local to http://192.168.19.1:3001 (current Wi-Fi IP) and restart Expo --clear. Emulator: use 10.0.2.2.`);
+      }
+      throw new ApiError(0, `Network error: cannot reach ${API_URL} (${raw})`);
+    }
     const headerToken =
       res.headers.get("set-auth-token") ?? res.headers.get("Set-Auth-Token") ?? res.headers.get("set_auth_token");
     const text = await res.text();
@@ -284,8 +332,16 @@ export const api = {
   agentStatus: (id: string) => req<any>(`/api/agents/${id}/status`),
   agentPreview: (data: { endpoint: string; authSecret?: string; transport?: string }) =>
     req<any>("/api/agents/preview", { method: "POST", body: JSON.stringify(data) }),
-  promptAgent: (id: string, data: { channelId: string; content: string; parentId?: string | null }) =>
+  promptAgent: (id: string, data: { channelId: string; content: string; parentId?: string | null; sessionId?: string | null }) =>
     req<any>(`/api/agents/${id}/prompt`, { method: "POST", body: JSON.stringify(data) }),
+  createAgentDm: (agentId: string, workspaceId: string) =>
+    req<any>(`/api/agents/${agentId}/dm`, { method: "POST", body: JSON.stringify({ workspaceId }) }),
+  agentSessions: (agentId: string, channelId?: string) =>
+    req<any[]>(`/api/agents/${agentId}/sessions${channelId ? `?channelId=${channelId}` : ""}`),
+  approveAgentPermission: (agentId: string, data: { permissionId: string; decision: string; sessionId?: string | null }) =>
+    req<any>(`/api/agents/${agentId}/approve`, { method: "POST", body: JSON.stringify(data) }),
+  answerAgentQuestion: (agentId: string, data: { questionId: string; answer: string; sessionId?: string | null }) =>
+    req<any>(`/api/agents/${agentId}/answer`, { method: "POST", body: JSON.stringify(data) }),
 
   // push tokens
   registerPushToken: (data: { token: string; platform: "ios" | "android" }) =>
