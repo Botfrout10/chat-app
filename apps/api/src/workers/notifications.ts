@@ -143,6 +143,11 @@ async function processNotification(job: Job<NotifyJobData>, connection: IORedis)
       })
     );
 
+    // Expo push — only for high-signal kinds (mention/dm/thread), skip 'channel' noise
+    if (t.kind !== "channel") {
+      void sendExpoPush(t.userId, title, body, { channelId: ch.id, messageId: msg.id, workspaceId: ch.workspaceId }).catch((e) => console.error("[push] send failed", e));
+    }
+
     if (t.kind !== "channel" && t.email) {
       const preview = body.length >= 280 ? `${body}…` : body;
       await sendMail({
@@ -152,6 +157,45 @@ async function processNotification(job: Job<NotifyJobData>, connection: IORedis)
         html: `<div style="font-family:sans-serif;max-width:480px"><h3 style="color:#b7791f;margin:0 0 8px">${title}</h3><p style="color:#2b1d0f;background:#fdfbf0;border:1px solid #e8ddd0;border-radius:8px;padding:12px">${escapeHtml(preview)}</p><p style="color:#6b5a44;font-size:13px">— <b>${escapeHtml(senderName)}</b> in <b>#${ch.name}</b></p></div>`,
       });
     }
+  }
+}
+
+async function sendExpoPush(userId: string, title: string, body: string, data: Record<string, string>) {
+  const db = getDb(env.DATABASE_URL);
+  const { pushToken } = await import("@chat/db/schema");
+  const rows = await db.select().from(pushToken).where(eq(pushToken.userId, userId));
+  if (!rows.length) return;
+  const tokens = rows.map((r: any) => r.token);
+  // validate still Expo format
+  const valid = tokens.filter((t: string) => t.startsWith("ExponentPushToken["));
+  if (!valid.length) return;
+  try {
+    const { Expo } = await import("expo-server-sdk");
+    const expo = new Expo(env.EXPO_ACCESS_TOKEN ? { accessToken: env.EXPO_ACCESS_TOKEN } : {});
+    const messages = valid.map((to: string) => ({
+      to,
+      sound: "default" as const,
+      title,
+      body: body.slice(0, 120),
+      data,
+      priority: "high" as const,
+      channelId: "default",
+    }));
+    const chunks = expo.chunkPushNotifications(messages);
+    for (const chunk of chunks) {
+      const tickets = await expo.sendPushNotificationsAsync(chunk);
+      // handle DeviceNotRegistered — delete stale tokens
+      for (let i = 0; i < tickets.length; i++) {
+        const ticket: any = tickets[i];
+        if (ticket.status === "error" && ticket.details?.error === "DeviceNotRegistered") {
+          const badToken = chunk[i].to as string;
+          await db.delete(pushToken).where(eq(pushToken.token, badToken));
+          console.log(`[push] removed stale token ${badToken.slice(0, 30)}...`);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[push] expo error", (e as Error).message);
   }
 }
 

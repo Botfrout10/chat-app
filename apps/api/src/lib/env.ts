@@ -22,4 +22,5 @@ export const env = {
   MAIL_HOST: process.env.MAIL_HOST ?? "localhost",
   MAIL_PORT: Number(process.env.MAIL_PORT ?? 1025),
   MAIL_FROM: process.env.MAIL_FROM ?? "Pulse <noreply@pulse.local>",
+  EXPO_ACCESS_TOKEN: process.env.EXPO_ACCESS_TOKEN ?? "",
 };

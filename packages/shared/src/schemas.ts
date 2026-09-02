@@ -67,6 +67,7 @@ export const createLlmConnectionSchema = z.object({
   label: z.string().min(1).max(80),
   baseUrl: z.string().url().max(500),
   modelId: z.string().min(1).max(200),
+  provider: z.enum(["openai-compatible", "anthropic"]).default("openai-compatible").optional(),
   // @token used to mention the model; defaults to slugified label
   mentionName: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/).optional(),
   // OpenAI-compatible bearer token for cloud providers (e.g. OpenAI, Groq, OpenRouter)
@@ -106,3 +107,8 @@ export const updateAgentRegistrationSchema = z
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "endpoint is required for network transport", path: ["endpoint"] });
     }
   });
+
+export const registerPushTokenSchema = z.object({
+  token: z.string().min(10).max(300).regex(/^ExponentPushToken\[[^\]]+\]$/),
+  platform: z.enum(["ios", "android"]),
+});

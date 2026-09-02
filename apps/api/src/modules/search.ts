@@ -28,22 +28,46 @@ export async function registerSearchRoutes(app: FastifyInstance) {
     }
     if (myChannelIds.size === 0) return [];
 
-    const { inArray, ilike } = await import("drizzle-orm");
-    let whereClause: any = ilike(message.content, `%${q}%`);
-    if (channelId) {
-      if (!myChannelIds.has(channelId)) return reply.code(403).send({ error: "Forbidden channel" });
-      whereClause = and(whereClause, eq(message.channelId, channelId));
-    } else {
-      const ids = Array.from(myChannelIds) as string[];
-      whereClause = and(whereClause, inArray(message.channelId, ids));
+    const { inArray } = await import("drizzle-orm");
+    // tsvector search with fallback to ilike if tsvector column not yet populated
+    const idsForFilter = channelId
+      ? [channelId]
+      : Array.from(myChannelIds) as string[];
+    if (!idsForFilter.length) return [];
+    if (channelId && !myChannelIds.has(channelId)) return reply.code(403).send({ error: "Forbidden channel" });
+
+    // try tsvector first, fallback to ilike on error
+    let rows: any[] = [];
+    try {
+      const tsQuery = sql`plainto_tsquery('english', ${q})`;
+      const rank = sql`ts_rank(CAST(${message.searchVector} AS tsvector), ${tsQuery})`;
+      const whereTs = and(
+        sql`CAST(${message.searchVector} AS tsvector) @@ ${tsQuery}`,
+        inArray(message.channelId, idsForFilter),
+      );
+      // ensure deleted messages not returned
+      const whereWithDeleted = and(whereTs, sql`${message.deletedAt} IS NULL`);
+      rows = await db
+        .select({ message, channel, rank })
+        .from(message)
+        .innerJoin(channel, eq(message.channelId, channel.id))
+        .where(whereWithDeleted as any)
+        .orderBy(sql`${rank} DESC, ${message.createdAt} DESC`)
+        .limit(50);
+      // if tsvector had no hits (e.g. stopwords), fallback to ilike for recall
+      if (rows.length === 0) throw new Error("no tsvector hits");
+    } catch {
+      const { ilike } = await import("drizzle-orm");
+      let whereClause: any = ilike(message.content, `%${q}%`);
+      whereClause = and(whereClause, inArray(message.channelId, idsForFilter), sql`${message.deletedAt} IS NULL`);
+      rows = await db
+        .select({ message, channel, rank: sql`0`.as("rank") })
+        .from(message)
+        .innerJoin(channel, eq(message.channelId, channel.id))
+        .where(whereClause)
+        .orderBy(sql`${message.createdAt} DESC`)
+        .limit(50);
     }
-    const rows = await db
-      .select({ message, channel })
-      .from(message)
-      .innerJoin(channel, eq(message.channelId, channel.id))
-      .where(whereClause)
-      .orderBy(sql`${message.createdAt} DESC`)
-      .limit(50);
 
     return rows.map((r: any) => ({ ...r.message, channel: r.channel }));
   });
