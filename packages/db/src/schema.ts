@@ -104,6 +104,7 @@ export const message = pgTable("message", {
   index("message_channel_id_idx").on(t.channelId, t.id),
   index("message_parent_idx").on(t.parentId),
   index("message_nonce_idx").on(t.channelId, t.nonce),
+  index("message_search_vector_gin").using("gin", t.searchVector),
 ]);
 
 export const attachment = pgTable("attachment", {
@@ -199,6 +200,8 @@ export const agentRegistration = pgTable("agent_registration", {
   status: varchar("status", { length: 20 }).notNull().default("pending").$type<"pending" | "online" | "offline" | "error">(),
   capabilities: jsonb("capabilities"), // handshake-reported: agent name/version, tools…
   machineMetadata: jsonb("machine_metadata"), // os, hostname, arch…
+  systemPrompt: text("system_prompt"), // customizable system prompt per agent
+  transportFlavor: varchar("transport_flavor", { length: 20 }).notNull().default("opencode-http").$type<"opencode-http" | "acp-generic">(),
   lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -218,6 +221,40 @@ export const pushToken = pgTable("push_token", {
   index("push_token_token_idx").on(t.token),
 ]);
 
+// Agent sessions: one logical session per (agent, channel) by default, but user can create many
+export const agentSession = pgTable("agent_session", {
+  id: text("id").primaryKey(), // ulid
+  agentId: text("agent_id").notNull().references(() => agentRegistration.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull().references(() => channel.id, { onDelete: "cascade" }),
+  opencodeSessionId: text("opencode_session_id"),
+  acpSessionId: text("acp_session_id"),
+  title: varchar("title", { length: 120 }).notNull(),
+  systemPrompt: text("system_prompt"),
+  modelId: text("model_id"),
+  status: varchar("status", { length: 20 }).notNull().default("active").$type<"active" | "archived">(),
+  parentSessionId: text("parent_session_id").references((): any => agentSession.id, { onDelete: "set null" }),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("agent_session_agent_idx").on(t.agentId),
+  index("agent_session_channel_idx").on(t.channelId),
+  index("agent_session_agent_channel_idx").on(t.agentId, t.channelId),
+]);
+
+export const agentSkill = pgTable("agent_skill", {
+  id: text("id").primaryKey(), // ulid
+  agentId: text("agent_id").notNull().references(() => agentRegistration.id, { onDelete: "cascade" }),
+  skillId: varchar("skill_id", { length: 80 }).notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  config: jsonb("config"),
+  scope: varchar("scope", { length: 20 }).notNull().default("workspace").$type<"workspace" | "session">(),
+  sessionId: text("session_id").references(() => agentSession.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("agent_skill_agent_skill_scope_unique").on(t.agentId, t.skillId, t.scope, t.sessionId),
+  index("agent_skill_agent_idx").on(t.agentId),
+]);
+
 // Relations
 export const workspaceRelations = relations(workspace, ({ many, one }) => ({
   members: many(workspaceMember),
@@ -234,7 +271,21 @@ export const messageRelations = relations(message, ({ one, many }) => ({
   reactions: many(reaction),
 }));
 
-export const agentRegistrationRelations = relations(agentRegistration, ({ one }) => ({
+export const agentRegistrationRelations = relations(agentRegistration, ({ one, many }) => ({
   owner: one(user, { fields: [agentRegistration.ownerId], references: [user.id] }),
   workspace: one(workspace, { fields: [agentRegistration.workspaceId], references: [workspace.id] }),
+  sessions: many(agentSession),
+  skills: many(agentSkill),
+}));
+
+export const agentSessionRelations = relations(agentSession, ({ one, many }) => ({
+  agent: one(agentRegistration, { fields: [agentSession.agentId], references: [agentRegistration.id] }),
+  channel: one(channel, { fields: [agentSession.channelId], references: [channel.id] }),
+  parent: one(agentSession, { fields: [agentSession.parentSessionId], references: [agentSession.id], relationName: "subagent" }),
+  children: many(agentSession, { relationName: "subagent" }),
+}));
+
+export const agentSkillRelations = relations(agentSkill, ({ one }) => ({
+  agent: one(agentRegistration, { fields: [agentSkill.agentId], references: [agentRegistration.id] }),
+  session: one(agentSession, { fields: [agentSkill.sessionId], references: [agentSession.id] }),
 }));
