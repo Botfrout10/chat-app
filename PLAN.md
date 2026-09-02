@@ -68,8 +68,8 @@ Full chat parity with web; bearer-token auth; push notifications deferred to pha
 - [x] Web polish: palette jump-to-message highlight — `CommandPalette` now calls `goToMessage(channelId, messageId)` → `store/chat.ts:highlightedMessageId` → `ChannelView` scrolls `msg-<id>` into view with `ring` highlight (2.5s auto-clear) + fetches around-window (`?before`/`?after`) if not in current pages; `MessageItem` has `id=msg-<id>` + highlight ring
 - [x] Web polish: PromptInput native attachment hardening — `ChannelView.tsx:ChatComposer` now `maxFiles={10} maxFileSize={25*1024*1024} onError→toast`, `uploadAttachmentPart` checks size + `PUT` status and throws; `prompt-input.tsx` `maxFiles`/`maxFileSize` validation already wired (pre-existing)
 - [x] Web polish: dark-mode audit — `dialog.tsx`/`alert-dialog.tsx` overlay `dark:bg-black/40` (was `bg-black/10` invisible on dark), verified `Dialog`/`AlertDialog`/`CommandDialog`/`Input`/`Popover` all use `bg-popover`/`bg-input`/`var(--border)` tokens, scrollbar thumb `dark` variant present; no hard `bg-white` leaks except intentional hero glass
-- [ ] Push notifications (phase 2): device token registry migration, `POST /api/push/register`, expo-server-sdk delivery in notifications worker, deep links
-- [ ] Search v2 (`tsvector` GIN), OpenSearch
+- [x] Push notifications (phase 2): device token registry migration (`push_token` table, `0008_sweet_gorgon`), `POST /api/push/register` + `DELETE /api/push/token` (Expo-only, `expo-server-sdk` chunked, `DeviceNotRegistered` cleanup), worker now sends push for mention/dm/thread alongside in-app + email, mobile `usePushRegistration` (expo-notifications + permissions, Android channel) in `app/_layout.tsx`
+- [x] Search v2 (`tsvector` GIN): `message.search_vector tsvector` + trigger + GIN index in `0008_sweet_gorgon`, `modules/search.ts` now `plainto_tsquery` + `ts_rank` with ilike fallback for stopwords, filtered to user's channels
 
 ## AI integration (roadmap)
 
@@ -115,10 +115,11 @@ Chat with LLMs; delegate real work to external agents. **Connect-only**: the app
 
 ### Phase C — Later
 
-- [ ] Cloud providers (OpenAI, Groq, OpenRouter…) + encrypted-at-rest API key storage
-- [ ] Anthropic Messages-API adapter behind the same connection interface
+- [x] Cloud providers (OpenAI, Groq, OpenRouter…) + encrypted-at-rest API key storage — `llm_connection.apiKeyEncrypted` (AES-GCM via `lib/crypto.ts`) + `agent_registration.authSecretEncrypted` (`0008_sweet_gorgon`, `modules/agents.ts` + `lib/agent.ts` decrypt fallback), provider enum `openai-compatible | anthropic` in `shared/schemas.ts` + `schema.ts`
+- [x] Anthropic Messages-API adapter behind the same connection interface — `lib/llm.ts: streamAnthropic` (system top-level, `x-api-key` + `anthropic-version`, SSE `content_block_delta` → `llm:delta`), `modules/llm.ts` verify/preview/status branch for `provider=anthropic` (no `/models` listing)
 - [ ] Tool/function-calling round-trips for LLMs (provider-side tools)
 - [ ] Hosted sandbox agent provider (optional, only if demand appears)
+- [x] Web confirm/alert → Dialog: `MessageItem.tsx:89` now `AlertDialog` (petrol tokens) + `ChannelView.tsx:446,459` `alert()` → `toast.error` (sonner)
 
 ## Notes
 
