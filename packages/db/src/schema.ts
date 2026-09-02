@@ -1,5 +1,9 @@
-import { pgTable, text, timestamp, varchar, index, unique, primaryKey, integer, boolean, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, varchar, index, unique, primaryKey, integer, boolean, jsonb, customType } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
+
+const tsvector = customType<{ data: string; driverData: string }>({
+  dataType() { return "tsvector"; },
+});
 
 // Better-auth tables (compatible with better-auth drizzle adapter)
 export const user = pgTable("user", {
@@ -92,7 +96,7 @@ export const message = pgTable("message", {
   reasoning: text("reasoning"),
   nonce: varchar("nonce", { length: 64 }),
   // full-text search vector (english) — maintained by trigger, GIN indexed
-  searchVector: text("search_vector"),
+  searchVector: tsvector("search_vector"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   editedAt: timestamp("edited_at", { withTimezone: true }),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
