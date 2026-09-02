@@ -57,6 +57,11 @@ async function* streamChatCompletion(
   signal: AbortSignal,
 ): AsyncGenerator<StreamDelta> {
   const apiKey = decryptApiKey((conn as any).apiKeyEncrypted);
+  const provider = (conn as any).provider as string;
+  if (provider === "anthropic") {
+    yield* streamAnthropic(conn, messages, apiKey, signal);
+    return;
+  }
   const headers: Record<string, string> = { "content-type": "application/json", accept: "text/event-stream" };
   if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
   const res = await fetch(`${conn.baseUrl}/chat/completions`, {
@@ -95,6 +100,64 @@ async function* streamChatCompletion(
       } catch {
         // partial/keepalive line — ignore
       }
+    }
+  }
+}
+
+async function* streamAnthropic(
+  conn: LlmConnectionRow,
+  messages: ChatMessage[],
+  apiKey: string | null,
+  signal: AbortSignal,
+): AsyncGenerator<StreamDelta> {
+  // Anthropic requires system as top-level, not in messages
+  const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+  const rest = messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role, content: m.content }));
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    accept: "text/event-stream",
+    "anthropic-version": "2023-06-01",
+  };
+  if (apiKey) headers["x-api-key"] = apiKey;
+  // Anthropic baseUrl is typically https://api.anthropic.com — endpoint is /v1/messages
+  const url = conn.baseUrl.includes("/v1/messages") ? conn.baseUrl : `${conn.baseUrl.replace(/\/+$/, "")}/v1/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ model: conn.modelId, max_tokens: 4096, system: system || undefined, messages: rest, stream: true }),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Anthropic responded ${res.status}: ${detail.slice(0, 300)}`);
+  }
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line) continue;
+      // Anthropic SSE: `event: content_block_delta` + `data: {"type":"content_block_delta","delta":{"text":"..."}}`
+      if (line.startsWith("event:")) continue;
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const evt = JSON.parse(payload);
+        if (evt.type === "content_block_delta" && typeof evt.delta?.text === "string") {
+          yield { kind: "content", text: evt.delta.text };
+        } else if (evt.type === "content_block_delta" && typeof evt.delta?.thinking === "string") {
+          yield { kind: "reasoning", text: evt.delta.thinking };
+        } else if (evt.delta?.text) {
+          yield { kind: "content", text: evt.delta.text };
+        }
+      } catch {}
     }
   }
 }

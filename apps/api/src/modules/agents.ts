@@ -6,6 +6,7 @@ import { agentRegistration, workspaceMember, channel, channelMember } from "@cha
 import { createAgentRegistrationSchema, updateAgentRegistrationSchema } from "@chat/shared/schemas";
 import { enforceRate } from "../lib/rateLimit.js";
 import { triggerAgentReply } from "../lib/agent.js";
+import { encryptApiKey, decryptApiKey } from "../lib/crypto.js";
 
 const VERIFY_TIMEOUT_MS = 5_000;
 
@@ -17,8 +18,14 @@ function authHeaders(authSecret: string | null | undefined): Record<string, stri
 
 function sanitizeRegistration(row: any) {
   if (!row) return row;
-  const { authSecret, ...rest } = row;
-  return { ...rest, hasAuthSecret: !!authSecret };
+  const { authSecret, authSecretEncrypted, ...rest } = row;
+  return { ...rest, hasAuthSecret: !!(authSecretEncrypted ?? authSecret) };
+}
+
+function getSecret(row: any): string | null {
+  const enc = row?.authSecretEncrypted ?? row?.auth_secret_encrypted;
+  if (enc) return decryptApiKey(enc);
+  return row?.authSecret ?? row?.auth_secret ?? null;
 }
 
 function normalizeEndpoint(raw: string): string {
@@ -173,6 +180,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
 
     const endpoint = data.endpoint ? normalizeEndpoint(data.endpoint) : null;
     const authSecret = data.authSecret?.trim() ? data.authSecret.trim() : null;
+    const authSecretEncrypted = authSecret ? encryptApiKey(authSecret) : null;
     const transport = data.transport ?? "network";
 
     // verify (handshake) — sets initial status
@@ -190,7 +198,8 @@ export async function registerAgentRoutes(app: FastifyInstance) {
         name: data.name,
         transport,
         endpoint,
-        authSecret,
+        authSecret: null,
+        authSecretEncrypted,
         status: result.ok ? "online" : "error",
         capabilities: result.capabilities ?? null,
         machineMetadata: result.machineMetadata ?? null,
@@ -227,7 +236,8 @@ export async function registerAgentRoutes(app: FastifyInstance) {
         ? (parsed.data.endpoint ? normalizeEndpoint(parsed.data.endpoint) : null)
         : row.endpoint;
     const incomingSecret = parsed.data.authSecret?.trim();
-    const nextAuthSecret = incomingSecret ? incomingSecret : (row as any).authSecret;
+    const existingSecret = getSecret(row);
+    const nextAuthSecret = incomingSecret ? incomingSecret : existingSecret;
     const nextName = parsed.data.name ?? row.name;
     const nextWorkspaceId = parsed.data.workspaceId ?? row.workspaceId;
 
@@ -252,7 +262,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       workspaceId: nextWorkspaceId,
       transport: nextTransport,
       endpoint: nextEndpoint,
-      ...(incomingSecret ? { authSecret: incomingSecret } : {}),
+      ...(incomingSecret ? { authSecret: null, authSecretEncrypted: encryptApiKey(incomingSecret) } : {}),
       ...(verify
         ? {
             status: verify.ok ? "online" : "error",
@@ -298,7 +308,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       return sanitizeRegistration(updated);
     }
 
-    const result = await verifyAgent(row.endpoint, (row as any).authSecret, row.transport);
+    const result = await verifyAgent(row.endpoint, getSecret(row), row.transport);
     const [updated] = await dbi
       .update(agentRegistration)
       .set({
@@ -332,7 +342,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     if (row.transport === "stdio" || !row.endpoint) {
       providerReachable = true;
     } else {
-      const probe = await verifyAgent(row.endpoint, (row as any).authSecret, row.transport);
+      const probe = await verifyAgent(row.endpoint, getSecret(row), row.transport);
       providerReachable = probe.ok;
       if (probe.ok) {
         liveCapabilities = probe.capabilities;

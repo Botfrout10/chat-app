@@ -8,6 +8,7 @@ import { CommandPalette } from "@/components/chat/CommandPalette";
 import { InviteMemberModal } from "@/components/chat/InviteMemberModal";
 import { LlmManagerModal } from "@/components/chat/LlmManagerModal";
 import { useChatEvents } from "@/hooks/useChatEvents";
+import { usePushRegistration } from "@/hooks/usePushRegistration";
 import { SessionProvider } from "@/lib/sessionProvider";
 import { useSession } from "@/lib/session";
 import { themeStorage } from "@/lib/themeStorage";
@@ -25,6 +26,7 @@ const queryClient = new QueryClient({
 function EventBridge() {
   const { token } = useSession();
   useChatEvents(!!token);
+  usePushRegistration(!!token);
   return null;
 }
 

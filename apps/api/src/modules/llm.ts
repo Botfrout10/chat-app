@@ -26,8 +26,9 @@ function sanitizeConnection(row: any) {
 // OpenAI-compatible providers expose the model list under <base>/models.
 // Accept any host root and normalize to the versioned path (/v1) — LM Studio,
 // Ollama and vLLM all serve there.
-function normalizeBaseUrl(raw: string): string {
+function normalizeBaseUrl(raw: string, provider: string = "openai-compatible"): string {
   const trimmed = raw.trim().replace(/\/+$/, "");
+  if (provider === "anthropic") return trimmed; // Anthropic uses https://api.anthropic.com
   return /\/v\d+$/.test(trimmed) ? trimmed : `${trimmed}/v1`;
 }
 
@@ -38,7 +39,13 @@ type VerifyResult = {
   availableModels?: string[];
 };
 
-async function verifyConnection(baseUrl: string, modelId: string, apiKey?: string | null): Promise<VerifyResult> {
+async function verifyConnection(baseUrl: string, modelId: string, apiKey?: string | null, provider: string = "openai-compatible"): Promise<VerifyResult> {
+  if (provider === "anthropic") {
+    if (!apiKey) return { ok: false, error: "Anthropic requires an API key" };
+    // Anthropic has no /models; verify key via a lightweight HEAD to /v1/messages would fail without body.
+    // Treat as ok if key looks plausible; surface modelId as-is.
+    return { ok: true, capabilities: { provider: "anthropic" }, availableModels: [modelId] };
+  }
   try {
     const res = await fetch(`${baseUrl}/models`, {
       headers: authHeaders(apiKey),
@@ -63,7 +70,7 @@ async function verifyConnection(baseUrl: string, modelId: string, apiKey?: strin
       };
     }
     // LM Studio may attach meta (context length etc.) — persist whatever it reports
-    return { ok: true, capabilities: (found as any).meta ?? null };
+    return { ok: true, capabilities: (found as any).meta ?? null, availableModels: models.map((m) => m.id) };
   } catch (e) {
     return { ok: false, error: `Provider unreachable: ${(e as Error).message}` };
   }
@@ -102,9 +109,10 @@ export async function registerLlmRoutes(app: FastifyInstance) {
     const taken = new Set(existing.map((r: any) => r.mentionName));
     if (taken.has(mentionName)) mentionName = `${mentionName}-${ulid().slice(-4).toLowerCase()}`;
 
-    const baseUrl = normalizeBaseUrl(data.baseUrl);
+    const provider = (data as any).provider ?? "openai-compatible";
+    const baseUrl = normalizeBaseUrl(data.baseUrl, provider);
     const apiKey = data.apiKey?.trim() ? data.apiKey.trim() : null;
-    const result = await verifyConnection(baseUrl, data.modelId, apiKey);
+    const result = await verifyConnection(baseUrl, data.modelId, apiKey, provider);
     const [row] = await db()
       .insert(llmConnection)
       .values({
@@ -112,6 +120,7 @@ export async function registerLlmRoutes(app: FastifyInstance) {
         ownerId: user.id,
         label: data.label,
         mentionName,
+        provider,
         baseUrl,
         modelId: data.modelId,
         apiKeyEncrypted: apiKey ? encryptApiKey(apiKey) : null,
@@ -136,11 +145,13 @@ export async function registerLlmRoutes(app: FastifyInstance) {
     const [row] = await dbi.select().from(llmConnection).where(and(eq(llmConnection.id, id), eq(llmConnection.ownerId, user.id)));
     if (!row) return reply.code(404).send({ error: "Connection not found" });
 
+    const providerNext = (parsed.data as any).provider ?? (row as any).provider ?? "openai-compatible";
     const next = {
       label: parsed.data.label ?? row.label,
-      baseUrl: normalizeBaseUrl(parsed.data.baseUrl ?? row.baseUrl),
+      baseUrl: normalizeBaseUrl(parsed.data.baseUrl ?? row.baseUrl, providerNext),
       modelId: parsed.data.modelId ?? row.modelId,
       mentionName: parsed.data.mentionName ?? row.mentionName,
+      provider: providerNext,
     };
     // apiKey update: if provided, re-encrypt; empty string means keep existing
     const incomingKey = parsed.data.apiKey?.trim();
@@ -151,8 +162,8 @@ export async function registerLlmRoutes(app: FastifyInstance) {
 
     // re-verify whenever provider coordinates or key change
     let verify: VerifyResult | null = null;
-    if (next.baseUrl !== row.baseUrl || next.modelId !== row.modelId || incomingKey) {
-      verify = await verifyConnection(next.baseUrl, next.modelId, effectiveKey);
+    if (next.baseUrl !== row.baseUrl || next.modelId !== row.modelId || next.provider !== (row as any).provider || incomingKey) {
+      verify = await verifyConnection(next.baseUrl, next.modelId, effectiveKey, next.provider);
     }
 
     const [updated] = await dbi
@@ -192,7 +203,8 @@ export async function registerLlmRoutes(app: FastifyInstance) {
     if (!row) return reply.code(404).send({ error: "Connection not found" });
 
     const apiKey = decryptApiKey((row as any).apiKeyEncrypted);
-    const result = await verifyConnection(row.baseUrl, row.modelId, apiKey);
+    const provider = (row as any).provider ?? "openai-compatible";
+    const result = await verifyConnection(row.baseUrl, row.modelId, apiKey, provider);
     const [updated] = await dbi
       .update(llmConnection)
       .set({
@@ -229,9 +241,10 @@ export async function registerLlmRoutes(app: FastifyInstance) {
     const user = await (app as any).getSessionUser(req);
     if (!user) return reply.code(401).send({ error: "Unauthorized" });
     if (!(await enforceRate(app.redis, req, reply, { name: "llm-verify", max: 10, windowMs: 60_000, subject: user.id }))) return;
-    const parsed = z.object({ baseUrl: z.string().min(1).max(500), apiKey: z.string().max(500).optional() }).safeParse(req.body);
+    const parsed = z.object({ baseUrl: z.string().min(1).max(500), apiKey: z.string().max(500).optional(), provider: z.enum(["openai-compatible","anthropic"]).optional() }).safeParse(req.body);
     if (!parsed.success) return reply.code(400).send(parsed.error.flatten());
-    const baseUrl = normalizeBaseUrl(parsed.data.baseUrl);
+    const provider = (parsed.data as any).provider ?? "openai-compatible";
+    const baseUrl = normalizeBaseUrl(parsed.data.baseUrl, provider);
     const apiKey = parsed.data.apiKey?.trim() || null;
     try {
       const res = await fetch(`${baseUrl}/models`, {
@@ -262,18 +275,24 @@ export async function registerLlmRoutes(app: FastifyInstance) {
     if (!row) return reply.code(404).send({ error: "Connection not found" });
 
     let providerModels: string[] | null = null;
+    const provider = (row as any).provider ?? "openai-compatible";
     const apiKey = decryptApiKey((row as any).apiKeyEncrypted);
-    try {
-      const res = await fetch(`${row.baseUrl}/models`, {
-        headers: authHeaders(apiKey),
-        signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as any;
-        providerModels = (Array.isArray(data?.data) ? data.data : []).map((m: any) => m?.id).filter(Boolean);
+    if (provider === "anthropic") {
+      // Anthropic has no models listing; return the configured model as available if key present
+      providerModels = apiKey ? [row.modelId] : null;
+    } else {
+      try {
+        const res = await fetch(`${row.baseUrl}/models`, {
+          headers: authHeaders(apiKey),
+          signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as any;
+          providerModels = (Array.isArray(data?.data) ? data.data : []).map((m: any) => m?.id).filter(Boolean);
+        }
+      } catch {
+        // status page shows lastError instead; don't fail the endpoint on a dead provider
       }
-    } catch {
-      // status page shows lastError instead; don't fail the endpoint on a dead provider
     }
 
     return {

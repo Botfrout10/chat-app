@@ -8,6 +8,13 @@ import {
   message,
   user as userTable,
 } from "@chat/db/schema";
+import { decryptApiKey } from "./crypto.js";
+
+function getAgentSecret(agent: AgentRow): string | null {
+  const enc = (agent as any).authSecretEncrypted ?? (agent as any).auth_secret_encrypted;
+  if (enc) return decryptApiKey(enc);
+  return (agent as any).authSecret ?? (agent as any).auth_secret ?? null;
+}
 
 const CONTEXT_MESSAGES = 20;
 const GENERATION_TIMEOUT_MS = 120_000;
@@ -120,7 +127,7 @@ async function getOrCreateOpenCodeSession(
 
   const endpoint = (agent.endpoint ?? "").replace(/\/+$/, "");
   if (!endpoint) throw new Error("Agent has no endpoint");
-  const secret = (agent as any).authSecret as string | null | undefined;
+  const secret = getAgentSecret(agent);
 
   const p = (async () => {
     const url = `${endpoint}/session`;
@@ -185,7 +192,7 @@ async function* streamViaOpenCodeSession(
   signal: AbortSignal,
 ): AsyncGenerator<AgentStreamEvent> {
   const endpoint = (agent.endpoint ?? "").replace(/\/+$/, "");
-  const secret = (agent as any).authSecret as string | null | undefined;
+  const secret = getAgentSecret(agent);
   if (!endpoint) throw new Error("Agent has no endpoint");
 
   const sessionId = await getOrCreateOpenCodeSession(app, agent, channelId, signal);
@@ -379,7 +386,8 @@ async function* streamGeneric(
   signal: AbortSignal,
 ): AsyncGenerator<AgentStreamEvent> {
   const headers: Record<string, string> = { "content-type": "application/json", accept: "text/event-stream, application/x-ndjson, application/json" };
-  if ((agent as any).authSecret) headers["authorization"] = `Bearer ${(agent as any).authSecret}`;
+  const secretGeneric = getAgentSecret(agent);
+  if (secretGeneric) headers["authorization"] = `Bearer ${secretGeneric}`;
   const endpoint = (agent.endpoint ?? "").replace(/\/+$/, "");
   const candidates: Array<{ url: string; body: unknown }> = [
     { url: `${endpoint}/v1/chat/completions`, body: { model: "agent", messages, stream: true } },

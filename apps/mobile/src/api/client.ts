@@ -286,6 +286,11 @@ export const api = {
     req<any>("/api/agents/preview", { method: "POST", body: JSON.stringify(data) }),
   promptAgent: (id: string, data: { channelId: string; content: string; parentId?: string | null }) =>
     req<any>(`/api/agents/${id}/prompt`, { method: "POST", body: JSON.stringify(data) }),
+
+  // push tokens
+  registerPushToken: (data: { token: string; platform: "ios" | "android" }) =>
+    req<{ ok: boolean; id: string }>("/api/push/register", { method: "POST", body: JSON.stringify(data) }),
+  unregisterPushToken: (token: string) => req<{ ok: boolean }>("/api/push/token", { method: "DELETE", body: JSON.stringify({ token }) }),
 };
 
 export { ApiError };
