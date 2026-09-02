@@ -22,7 +22,7 @@ export default {
     },
     plugins: [
       "expo-router",
-      "expo-status-bar",
+      "expo-font",
       "expo-secure-store",
       ["expo-image-picker", { photosPermission: "Allow Pulse to access your photos to share them in chat." }],
     ],

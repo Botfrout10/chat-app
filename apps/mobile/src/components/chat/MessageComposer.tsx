@@ -34,6 +34,7 @@ export function MessageComposer({
   uploading,
   members,
   llmConnections,
+  agents,
   restoreDraft,
   onRestoreConsumed,
 }: {
@@ -49,6 +50,7 @@ export function MessageComposer({
   uploading?: boolean;
   members?: { id: string; name: string; email?: string }[];
   llmConnections?: { id: string; label: string; mentionName: string }[];
+  agents?: { id: string; name: string; mentionName?: string }[];
   restoreDraft?: string | null;
   onRestoreConsumed?: () => void;
 }) {
@@ -60,6 +62,7 @@ export function MessageComposer({
 
   const prevEdit = useRef<string | null>(null);
   const [mentionQ, setMentionQ] = useState<string | null>(null);
+  const [slashQ, setSlashQ] = useState<string | null>(null);
 
   // seed/clear composer text around edit mode
   useEffect(() => {
@@ -91,8 +94,11 @@ export function MessageComposer({
     setText(newText);
     // @mention autocomplete: detect trailing @token
     const m = /@([\p{L}\p{N}_.-]*)$/u.exec(newText);
-    if (m && (members?.length || llmConnections?.length)) setMentionQ(m[1].toLowerCase());
+    if (m && (members?.length || llmConnections?.length || agents?.length)) setMentionQ(m[1].toLowerCase());
     else setMentionQ(null);
+    const sm = /\/(\w*)$/.exec(newText);
+    if (sm && newText.trimStart().startsWith("/")) setSlashQ(sm[1].toLowerCase());
+    else setSlashQ(null);
     if (!typingRef.current && newText.length > 0) emitTyping(true);
     if (stopTimer.current) clearTimeout(stopTimer.current);
     stopTimer.current = setTimeout(() => {
@@ -103,7 +109,7 @@ export function MessageComposer({
   const mentionMatches = (() => {
     if (mentionQ === null) return [];
     const q = mentionQ;
-    const out: { key: string; label: string; sub?: string; isModel?: boolean; mentionName?: string; name: string }[] = [];
+    const out: { key: string; label: string; sub?: string; isModel?: boolean; isAgent?: boolean; mentionName?: string; name: string }[] = [];
     for (const mm of members ?? []) {
       if (mm.name.toLowerCase().startsWith(q) || (mm.email ?? "").toLowerCase().split("@")[0].startsWith(q) || (mm.email ?? "").toLowerCase().startsWith(q)) {
         out.push({ key: mm.id, label: mm.name, sub: mm.email, name: mm.name });
@@ -114,13 +120,32 @@ export function MessageComposer({
         out.push({ key: c.id, label: c.label, sub: `@${c.mentionName}`, isModel: true, mentionName: c.mentionName, name: c.label });
       }
     }
+    for (const a of agents ?? []) {
+      const mn = (a.mentionName ?? a.name.toLowerCase().replace(/\s+/g, "-")).toLowerCase();
+      if (a.name.toLowerCase().startsWith(q) || mn.startsWith(q)) {
+        out.push({ key: a.id, label: a.name, sub: `@${mn}`, isAgent: true, mentionName: mn, name: a.name });
+      }
+    }
     return out.slice(0, 6);
   })();
+  const SLASH_COMMANDS = [
+    { id: "new-session", label: "/new-session", desc: "New agent session" },
+    { id: "skills", label: "/skills", desc: "Manage skills" },
+    { id: "clear", label: "/clear-queue", desc: "Clear queued" },
+  ];
+  const slashMatches = (() => {
+    if (slashQ === null) return [];
+    return SLASH_COMMANDS.filter((c) => c.label.toLowerCase().startsWith("/" + slashQ)).slice(0, 5);
+  })();
 
-  function pickMention(item: { name: string; mentionName?: string; isModel?: boolean }) {
-    const token = item.isModel ? item.mentionName! : item.name;
+  function pickMention(item: { name: string; mentionName?: string; isModel?: boolean; isAgent?: boolean }) {
+    const token = item.isModel || item.isAgent ? item.mentionName! : item.name;
     setText((prev) => prev.replace(/@([\p{L}\p{N}_.-]*)$/u, `@${token} `));
     setMentionQ(null);
+  }
+  function pickSlash(item: { label: string }) {
+    setText((prev) => prev.replace(/\/\w*$/, item.label + " "));
+    setSlashQ(null);
   }
 
   async function submit() {
@@ -169,6 +194,17 @@ export function MessageComposer({
                   {m.sub}
                 </Text>
               )}
+            </Pressable>
+          ))}
+        </View>
+      )}
+      {slashQ !== null && slashMatches.length > 0 && (
+        <View style={[styles.mentionBox, { backgroundColor: t.card, borderColor: t.border }]}>
+          <Text style={[styles.mentionTitle, { color: t.mutedForeground }]}>COMMANDS</Text>
+          {slashMatches.map((m) => (
+            <Pressable key={m.id} onPress={() => pickSlash(m)} style={({ pressed }) => [styles.mentionRow, { backgroundColor: pressed ? t.muted : "transparent" }]}>
+              <Text style={[styles.mentionLabel, { color: t.foreground }]}>{m.label}</Text>
+              <Text style={[styles.mentionSub, { color: t.mutedForeground }]}>{m.desc}</Text>
             </Pressable>
           ))}
         </View>

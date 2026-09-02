@@ -53,12 +53,20 @@ export default function ChannelView() {
   const typingUsers = useChatStore((s) => s.typingUsers[channelId] ?? NO_TYPING);
   const presence = useChatStore((s) => s.presence);
   const llmStream = useChatStore((s) => s.llmStreams[channelId]);
+  const agentStream = useChatStore((s) => s.agentStreams[channelId]);
+  const agentTyping = useChatStore((s) => s.agentTyping[channelId]);
   const llmQuery = useQuery({
     queryKey: ["llm-connections"],
     queryFn: () => api.llmConnections(),
     enabled: !!channelId,
   });
+  const agentsQuery = useQuery({
+    queryKey: ["agents"],
+    queryFn: () => (api as any).agents().catch(() => []),
+    enabled: !!channelId,
+  });
   const llmLabel = llmQuery.data?.find((c) => c.id === llmStream?.connectionId)?.label;
+  const agentLabel = (agentsQuery.data as any[])?.find((a: any) => a.id === agentStream?.agentId)?.name ?? "Agent";
 
   // member name set drives @mention chip highlighting (me vs known vs unknown)
   const membersQuery = useMembers(activeWorkspaceId);
@@ -526,6 +534,40 @@ export default function ChannelView() {
             )}
           </View>
         )}
+        {!!agentStream && (
+          <View style={{ paddingHorizontal: 14, paddingBottom: 4, backgroundColor: t.muted + "40", borderRadius: 10, marginHorizontal: 8, marginBottom: 4 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Ionicons name="hardware-chip-outline" size={12} color={t.mutedForeground} />
+              <Text style={{ color: t.mutedForeground, fontSize: 12, fontWeight: "600" }}>{agentLabel} {agentStream.text ? "is writing…" : agentStream.thinking ? "is thinking…" : agentTyping ? "working…" : "preparing…"}</Text>
+            </View>
+            {!!agentStream.thinking && <Text style={{ color: t.mutedForeground, fontSize: 11, marginTop: 2 }} numberOfLines={4}>{agentStream.thinking}</Text>}
+            {!!agentStream.toolCalls.length && (
+              <View style={{ backgroundColor: t.card, borderRadius: 8, padding: 6, marginTop: 4 }}>
+                <Text style={{ color: t.mutedForeground, fontSize: 10, fontWeight: "700" }}>TOOLS</Text>
+                {agentStream.toolCalls.map((tc: any, i: number) => (
+                  <Text key={i} style={{ color: t.foreground, fontSize: 11 }} numberOfLines={1}>· {tc.tool} {tc.args ? JSON.stringify(tc.args).slice(0, 60) : ""}</Text>
+                ))}
+              </View>
+            )}
+            {!!agentStream.permission && (
+              <View style={{ backgroundColor: t.warning + "20", borderRadius: 8, padding: 6, marginTop: 4 }}>
+                <Text style={{ color: t.warning, fontSize: 11, fontWeight: "600" }}>Permission required</Text>
+                <Text style={{ color: t.foreground, fontSize: 12, marginTop: 2 }}>{agentStream.permission.text}</Text>
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
+                  <Pressable onPress={() => { const a = (agentsQuery.data as any[])?.[0]; if (a && agentStream.permission?.id) (api as any).approveAgentPermission(a.id, { permissionId: agentStream.permission.id, decision: "allow" }).catch(() => {}); useChatStore.getState().clearAgentStream(channelId); }} style={{ backgroundColor: t.success, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}><Text style={{ color: "#fff", fontSize: 12 }}>Allow</Text></Pressable>
+                  <Pressable onPress={() => { const a = (agentsQuery.data as any[])?.[0]; if (a && agentStream.permission?.id) (api as any).approveAgentPermission(a.id, { permissionId: agentStream.permission.id, decision: "deny" }).catch(() => {}); useChatStore.getState().clearAgentStream(channelId); }} style={{ backgroundColor: t.card, borderWidth: 1, borderColor: t.border, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}><Text style={{ color: t.foreground, fontSize: 12 }}>Deny</Text></Pressable>
+                </View>
+              </View>
+            )}
+            {!!agentStream.question && (
+              <View style={{ backgroundColor: t.accent50, borderRadius: 8, padding: 6, marginTop: 4 }}>
+                <Text style={{ color: t.accent700, fontSize: 11, fontWeight: "600" }}>Question</Text>
+                <Text style={{ color: t.foreground, fontSize: 12, marginTop: 2 }}>{agentStream.question.text}</Text>
+              </View>
+            )}
+            {!!agentStream.text && <Text style={{ color: t.foreground, fontSize: 13, marginTop: 4 }}>{agentStream.text}</Text>}
+          </View>
+        )}
         {!!typingLabel && (
           <Text style={{ color: t.mutedForeground, fontSize: 12, paddingHorizontal: 14, paddingBottom: 2 }}>
             {typingLabel}
@@ -560,6 +602,7 @@ export default function ChannelView() {
           onRemoveAttachment={(i) => setPending((p) => p.filter((_, j) => j !== i))}
           members={(membersQuery.data as any[]) ?? []}
           llmConnections={(llmQuery.data as any[]) ?? []}
+          agents={(agentsQuery.data as any[])?.map((a: any) => ({ id: a.id, name: a.name, mentionName: a.name.toLowerCase().replace(/\s+/g, "-") })) ?? []}
           restoreDraft={restoreDraft}
           onRestoreConsumed={() => setRestoreDraft(null)}
           onSend={async (content) => {

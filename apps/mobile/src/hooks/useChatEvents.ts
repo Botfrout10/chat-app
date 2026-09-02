@@ -15,6 +15,14 @@ export function useChatEvents(enabled: boolean) {
   const setTyping = useChatStore((s) => s.setTyping);
   const setPresence = useChatStore((s) => s.setPresence);
   const setLlmStream = useChatStore((s) => s.setLlmStream);
+  const setAgentStream = useChatStore((s) => s.setAgentStream);
+  const appendAgentText = useChatStore((s) => s.appendAgentText);
+  const appendAgentThinking = useChatStore((s) => s.appendAgentThinking);
+  const appendAgentTool = useChatStore((s) => s.appendAgentTool);
+  const setAgentPermission = useChatStore((s) => s.setAgentPermission);
+  const setAgentQuestion = useChatStore((s) => s.setAgentQuestion);
+  const clearAgentStream = useChatStore((s) => s.clearAgentStream);
+  const setAgentTyping = useChatStore((s) => s.setAgentTyping);
 
   useEffect(() => {
     if (!enabled) return;
@@ -155,6 +163,62 @@ export function useChatEvents(enabled: boolean) {
         clearLlmStream(evt.channelId);
         break;
       }
+      case "agent:typing": {
+        const evt = payload as { channelId: string; agentId: string; sessionId?: string | null; isTyping: boolean };
+        if (evt.isTyping) {
+          const cur = useChatStore.getState().agentStreams[evt.channelId];
+          if (!cur || cur.agentId !== evt.agentId) setAgentStream(evt.channelId, { agentId: evt.agentId, sessionId: evt.sessionId ?? null, text: "", thinking: "", toolCalls: [], permission: null, question: null });
+          setAgentTyping(evt.channelId, evt.agentId);
+        } else {
+          setAgentTyping(evt.channelId, null);
+        }
+        break;
+      }
+      case "agent:thinking": {
+        const evt = payload as { channelId: string; agentId: string; delta: string };
+        appendAgentThinking(evt.channelId, evt.agentId, evt.delta);
+        break;
+      }
+      case "agent:delta": {
+        const evt = payload as { channelId: string; agentId: string; delta: string };
+        appendAgentText(evt.channelId, evt.agentId, evt.delta);
+        break;
+      }
+      case "agent:tool": {
+        const evt = payload as { channelId: string; agentId: string; tool: string; args?: unknown; id?: string };
+        appendAgentTool(evt.channelId, evt.agentId, evt.tool ?? "tool", evt.args);
+        break;
+      }
+      case "agent:tool_result": {
+        // tool result shown inline — for mobile just append to thinking
+        const evt = payload as { channelId: string; agentId: string; tool: string; result: string };
+        appendAgentThinking(evt.channelId, evt.agentId, `\n[tool ${evt.tool} result: ${String(evt.result).slice(0, 200)}]\n`);
+        break;
+      }
+      case "agent:plan": {
+        const evt = payload as { channelId: string; agentId: string; text: string };
+        const cur = useChatStore.getState().agentStreams[evt.channelId];
+        if (cur) setAgentStream(evt.channelId, { ...cur, text: cur.text + `\n[plan: ${evt.text}]\n` } as any);
+        break;
+      }
+      case "agent:permission": {
+        const evt = payload as { channelId: string; agentId: string; text: string; id?: string };
+        setAgentPermission(evt.channelId, evt.agentId, evt.text, evt.id);
+        break;
+      }
+      case "agent:question": {
+        const evt = payload as { channelId: string; agentId: string; text: string; id?: string };
+        setAgentQuestion(evt.channelId, evt.agentId, evt.text, evt.id);
+        break;
+      }
+      case "agent:ack":
+      case "agent:queue":
+        break;
+      case "agent:error": {
+        const evt = payload as { channelId: string };
+        clearAgentStream(evt.channelId);
+        break;
+      }
       default:
         break;
     }
@@ -171,6 +235,7 @@ export function useChatEvents(enabled: boolean) {
     if (!msg?.channelId) return;
     // final LLM reply landed — drop the streaming indicator
     if (msg.llmConnectionId) clearLlmStream(msg.channelId, msg.llmConnectionId);
+    if ((msg as any).agentId) clearAgentStream((msg as any).channelId ?? msg.channelId);
     // live-refresh open threads when a reply lands
     if (msg.parentId) queryClient.invalidateQueries({ queryKey: ["replies", msg.parentId] });
     queryClient.setQueryData<InfiniteData<MessagesPage>>(["messages", msg.channelId], (data) => {
