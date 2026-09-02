@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -73,6 +74,8 @@ export function AgentManager() {
   const [busy, setBusy] = useState(false);
   const [openStatusId, setOpenStatusId] = useState<string | null>(null);
   const [removeId, setRemoveId] = useState<string | null>(null);
+  const [editPrompt, setEditPrompt] = useState("");
+  const [promptBusy, setPromptBusy] = useState(false);
 
   useEffect(() => {
     if (open && !workspaceId && activeWorkspaceId) setWorkspaceId(activeWorkspaceId);
@@ -91,6 +94,19 @@ export function AgentManager() {
     queryFn: () => (api as any).agentStatus(openStatusId!),
     enabled: open && !!openStatusId,
   });
+  const { data: agentSkillsData } = useQuery({
+    queryKey: ["agent-skills", openStatusId],
+    queryFn: () => (api as any).agentSkills(openStatusId!).catch(() => ({ skills: [], remote: null })),
+    enabled: open && !!openStatusId,
+  });
+  const { data: agentSessionsData } = useQuery({
+    queryKey: ["agent-sessions-list", openStatusId],
+    queryFn: () => (api as any).agentSessions(openStatusId!).catch(() => []),
+    enabled: open && !!openStatusId,
+  });
+  useEffect(() => {
+    if (statusDetail?.registration?.systemPrompt !== undefined) setEditPrompt(statusDetail.registration.systemPrompt ?? "");
+  }, [statusDetail?.registration?.systemPrompt]);
 
   // preview for network transport
   const canPreview = open && transport === "network" && !!endpoint && isValidUrl(endpoint);
@@ -225,6 +241,53 @@ export function AgentManager() {
                             <pre className="mt-1 rounded bg-[var(--muted)] p-2 font-mono text-[11px] text-[var(--muted-foreground)] overflow-auto max-h-32">{JSON.stringify(statusDetail.machineMetadata, null, 2)}</pre>
                           </details>
                         )}
+                        {/* system prompt */}
+                        <div className="space-y-1.5 pt-2 border-t border-[var(--border)]">
+                          <Label className="text-xs">System prompt</Label>
+                          <Textarea value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} placeholder="Custom system prompt for this agent…" className="min-h-[60px] font-mono text-xs" />
+                          <Button size="sm" variant="outline" disabled={promptBusy} onClick={async () => {
+                            if (!openStatusId) return;
+                            setPromptBusy(true);
+                            try { await (api as any).updateAgentConfig(openStatusId, { systemPrompt: editPrompt }); toast.success("System prompt saved"); qc.invalidateQueries({ queryKey: ["agent-status", openStatusId] }); } catch (e: any) { toast.error(e.message); } finally { setPromptBusy(false); }
+                          }}>{promptBusy ? "Saving…" : "Save prompt"}</Button>
+                        </div>
+                        {/* skills */}
+                        <div className="space-y-1.5 pt-2 border-t border-[var(--border)]">
+                          <div className="text-xs font-semibold">Skills</div>
+                          {(agentSkillsData as any)?.remote ? (
+                            <div className="text-xs text-[var(--muted-foreground)]">Remote: {JSON.stringify((agentSkillsData as any).remote).slice(0, 200)}</div>
+                          ) : <div className="text-xs text-[var(--muted-foreground)]">No remote skill list. Manage manually:</div>}
+                          <div className="space-y-1 max-h-32 overflow-auto">
+                            {((agentSkillsData as any)?.skills as any[])?.length ? ((agentSkillsData as any).skills as any[]).map((sk: any) => (
+                              <div key={sk.id} className="flex items-center gap-2 text-xs border border-[var(--border)] rounded px-2 py-1">
+                                <span className="font-mono">{sk.skillId}</span>
+                                <span className={`ml-auto h-2 w-2 rounded-full ${sk.enabled ? "bg-[var(--success)]" : "bg-[var(--muted-foreground)]"}`} />
+                                <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={async () => {
+                                  await (api as any).updateAgentSkills(openStatusId!, { skills: [{ skillId: sk.skillId, enabled: !sk.enabled }] });
+                                  qc.invalidateQueries({ queryKey: ["agent-skills", openStatusId] });
+                                }}>{sk.enabled ? "Disable" : "Enable"}</Button>
+                              </div>
+                            )) : <div className="text-xs text-[var(--muted-foreground)]">No skills configured</div>}
+                          </div>
+                        </div>
+                        {/* sessions */}
+                        <div className="space-y-1.5 pt-2 border-t border-[var(--border)]">
+                          <div className="text-xs font-semibold">Sessions ({((agentSessionsData as any[]) ?? []).length})</div>
+                          <div className="space-y-1 max-h-32 overflow-auto">
+                            {((agentSessionsData as any[]) ?? []).map((sess: any) => (
+                              <div key={sess.id} className="flex items-center gap-2 text-xs border border-[var(--border)] rounded px-2 py-1">
+                                <span className="font-mono truncate max-w-[140px]">{sess.title}</span>
+                                <span className="text-[10px] text-[var(--muted-foreground)]">{sess.status}</span>
+                                <Button size="sm" variant="ghost" className="h-6 text-xs ml-auto" onClick={async () => {
+                                  await (api as any).terminateAgentSession(openStatusId!, sess.id).catch(() => {});
+                                  qc.invalidateQueries({ queryKey: ["agent-sessions-list", openStatusId] });
+                                  toast.success("Session archived");
+                                }}>Archive</Button>
+                              </div>
+                            ))}
+                            {((agentSessionsData as any[]) ?? []).length === 0 && <div className="text-xs text-[var(--muted-foreground)]">No sessions yet</div>}
+                          </div>
+                        </div>
                       </>
                     )}
                     <div className="flex gap-2 pt-1">

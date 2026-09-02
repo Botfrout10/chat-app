@@ -136,7 +136,7 @@ export function AppShell() {
     const onAgentTyping = (p: any) => {
       if (!p.channelId) return;
       st().setAgentTyping(p.channelId, p.isTyping ? p.agentId : null);
-      if (p.isTyping) st().startAgentStream(p.channelId, p.agentId);
+      if (p.isTyping) st().startAgentStream(p.channelId, p.agentId, p.sessionId ?? null);
     };
     const onAgentThinking = (p: any) => {
       if (p.channelId && p.delta) st().appendAgentThinking(p.channelId, p.agentId, p.delta);
@@ -145,7 +145,34 @@ export function AppShell() {
       if (p.channelId && p.delta) st().appendAgentText(p.channelId, p.agentId, p.delta);
     };
     const onAgentTool = (p: any) => {
-      if (p.channelId) st().appendAgentTool(p.channelId, p.agentId, p.tool ?? "tool", p.args);
+      if (p.channelId) st().appendAgentTool(p.channelId, p.agentId, p.tool ?? "tool", p.args, p.id);
+    };
+    const onAgentToolResult = (p: any) => {
+      if (p.channelId) st().appendAgentToolResult(p.channelId, p.agentId, p.tool ?? "tool", p.result ?? "");
+    };
+    const onAgentPlan = (p: any) => {
+      if (p.channelId) st().setAgentPlan(p.channelId, p.agentId, p.text ?? "");
+    };
+    const onAgentPermission = (p: any) => {
+      if (p.channelId) st().setAgentPermission(p.channelId, p.agentId, p.text ?? "", p.id);
+    };
+    const onAgentQuestion = (p: any) => {
+      if (p.channelId) st().setAgentQuestion(p.channelId, p.agentId, p.text ?? "", p.id);
+    };
+    const onAgentSubagent = (p: any) => {
+      if (p.channelId) st().appendAgentSubagent(p.channelId, p.agentId, p.text ?? "", p.id);
+    };
+    const onAgentAck = (p: any) => {
+      if (p.channelId && p.queued) {
+        // ensure stream exists to show queued indicator
+        const cur = st().agentStreams[p.channelId];
+        if (!cur) st().startAgentStream(p.channelId, p.agentId, p.sessionId ?? null);
+        const { toast } = require("sonner");
+        toast.message(`Agent queued #${p.queuePosition ?? 1}`);
+      }
+    };
+    const onAgentQueue = (p: any) => {
+      if (p.channelId && typeof p.depth === "number") st().setAgentQueueDepth(p.channelId, p.depth);
     };
     const onAgentError = (p: any) => {
       if (p.channelId) st().clearAgentStream(p.channelId);
@@ -154,12 +181,26 @@ export function AppShell() {
     s.on("agent:thinking", onAgentThinking);
     s.on("agent:delta", onAgentDelta);
     s.on("agent:tool", onAgentTool);
+    s.on("agent:tool_result", onAgentToolResult);
+    s.on("agent:plan", onAgentPlan);
+    s.on("agent:permission", onAgentPermission);
+    s.on("agent:question", onAgentQuestion);
+    s.on("agent:subagent", onAgentSubagent);
+    s.on("agent:ack", onAgentAck);
+    s.on("agent:queue", onAgentQueue);
     s.on("agent:error", onAgentError);
     return () => {
       s.off("agent:typing", onAgentTyping);
       s.off("agent:thinking", onAgentThinking);
       s.off("agent:delta", onAgentDelta);
       s.off("agent:tool", onAgentTool);
+      s.off("agent:tool_result", onAgentToolResult);
+      s.off("agent:plan", onAgentPlan);
+      s.off("agent:permission", onAgentPermission);
+      s.off("agent:question", onAgentQuestion);
+      s.off("agent:subagent", onAgentSubagent);
+      s.off("agent:ack", onAgentAck);
+      s.off("agent:queue", onAgentQueue);
       s.off("agent:error", onAgentError);
     };
   }, []);

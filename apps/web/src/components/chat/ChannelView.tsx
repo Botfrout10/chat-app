@@ -7,7 +7,11 @@ import { useChatStore } from "@/store/chat";
 import { useUiStore } from "@/store/ui";
 import { MessageItem } from "./MessageItem";
 import { Button } from "@/components/ui/button";
-import { AtSign, Bot, BrainCircuit, CornerDownLeft, Hash, Sparkles, AlertTriangle, WifiOff, CheckCircle2, Loader2, Clock, RefreshCw } from "lucide-react";
+import { AtSign, Bot, BrainCircuit, CornerDownLeft, Hash, Sparkles, AlertTriangle, WifiOff, CheckCircle2, Loader2, Clock, RefreshCw, Layers, Settings2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel } from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import type { FileUIPart } from "ai";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { toast } from "sonner";
@@ -152,6 +156,7 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   const [input, setInput] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [questionAnswer, setQuestionAnswer] = useState("");
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useInfiniteQuery({
     queryKey: ["messages", channelId],
@@ -200,6 +205,17 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
     enabled: !!workspaceId,
   });
   const agentsInWorkspace = useMemo(() => ((workspaceAgents as any[]) ?? []).filter((a: any) => a.workspaceId === workspaceId), [workspaceAgents, workspaceId]);
+  const primaryAgentId = agentsInWorkspace[0]?.id as string | undefined;
+  const { data: agentSessions } = useQuery({
+    queryKey: ["agent-sessions", primaryAgentId, channelId],
+    queryFn: () => (api as any).agentSessions(primaryAgentId!, channelId).catch(() => []),
+    enabled: !!primaryAgentId && !!channelId,
+  });
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  useEffect(() => {
+    if ((agentSessions as any[])?.length && !activeSessionId) setActiveSessionId((agentSessions as any[])[0].id);
+  }, [agentSessions, activeSessionId]);
+  const activeSession = useMemo(() => (agentSessions as any[])?.find((s: any) => s.id === activeSessionId) ?? (agentSessions as any[])?.[0] ?? null, [agentSessions, activeSessionId]);
 
   // palette jump-to-message: scroll + highlight, fetch window around if not in current pages
   useEffect(() => {
@@ -397,17 +413,39 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
   }, [ac, members, modelCandidates, agentCandidates]);
 
   const AC_RE = /@([\p{L}\p{N}_.-]*)$/u;
+  const SLASH_RE = /\/(\w*)$/;
+  const SLASH_COMMANDS = [
+    { id: "new-session", label: "/new-session", desc: "Start a new agent session in this channel" },
+    { id: "skills", label: "/skills", desc: "Manage agent skills" },
+    { id: "sessions", label: "/sessions", desc: "List agent sessions" },
+    { id: "clear-queue", label: "/clear-queue", desc: "Clear queued messages" },
+    { id: "system-prompt", label: "/system-prompt", desc: "Set system prompt for session" },
+  ];
+  const [slash, setSlash] = useState<{ open: boolean; q: string }>({ open: false, q: "" });
+  const slashMatches = useMemo(() => {
+    if (!slash.open) return [];
+    const q = slash.q.toLowerCase();
+    return SLASH_COMMANDS.filter((c) => c.label.toLowerCase().startsWith("/" + q)).slice(0, 6);
+  }, [slash]);
   function handleInput(v: string) {
     handleTyping(v);
-    const m = AC_RE.exec(v);
-    if (m && workspaceId) setAc({ open: true, q: m[1] });
-    else setAc({ open: false, q: "" });
+    const am = AC_RE.exec(v);
+    if (am && workspaceId) { setAc({ open: true, q: am[1] }); setSlash({ open: false, q: "" }); return; }
+    const sm = SLASH_RE.exec(v);
+    // only trigger slash at start or after space, and when channel is agent-related or any
+    if (sm && (v.trimStart().startsWith("/") || v.includes(" /"))) { setSlash({ open: true, q: sm[1] }); setAc({ open: false, q: "" }); return; }
+    setAc({ open: false, q: "" });
+    setSlash({ open: false, q: "" });
   }
 
   function pickMention(m: any) {
     const token = m.isModel || m.isAgent ? m.mentionName : m.name;
     setInput((prev) => prev.replace(/@([\p{L}\p{N}_.-]*)$/u, `@${token} `));
     setAc({ open: false, q: "" });
+  }
+  function pickSlash(cmd: typeof SLASH_COMMANDS[number]) {
+    setInput((prev) => prev.replace(/\/\w*$/, cmd.label + " "));
+    setSlash({ open: false, q: "" });
   }
 
   /** Upload a staged attachment part (data URL) via presigned PUT. */
@@ -714,6 +752,22 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
 
   async function handlePromptSubmitQueued({ text, files }: { text: string; files: FileUIPart[] }) {
     if (!text.trim() && files.length === 0) return;
+    const trimmedSlash = text.trim();
+    if (trimmedSlash.startsWith("/")) {
+      const cmd = trimmedSlash.split(/\s+/)[0].toLowerCase();
+      if (cmd === "/new-session" && primaryAgentId) {
+        try {
+          const row: any = await (api as any).createAgentSession(primaryAgentId, { channelId, title: trimmedSlash.slice("/new-session".length).trim() || `session-${Date.now().toString().slice(-4)}` });
+          qc.invalidateQueries({ queryKey: ["agent-sessions", primaryAgentId, channelId] });
+          setActiveSessionId(row.id);
+          toast.success(`New session: ${row.title}`);
+        } catch (e: any) { toast.error(e.message); }
+        return;
+      }
+      if (cmd === "/clear-queue") { setPendingQueue([]); toast.success("Queue cleared"); return; }
+      if (cmd === "/sessions") { toast.message("Sessions", { description: `${(agentSessions as any[])?.length ?? 0} sessions — pick from header dropdown` }); return; }
+      if (cmd === "/skills" && primaryAgentId) { useUiStore.getState().openDialog("agentManager"); return; }
+    }
     // Agent chats: queue when agent offline (keeps queuing mechanism for agents)
     if (isAgentChannel) {
       if (isModelOffline) {
@@ -793,7 +847,23 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
       try {
         const atts: { key: string; filename: string; mime: string; size: number }[] = [];
         for (const f of files) atts.push(await uploadAttachmentPart(f));
-        await send(text, atts);
+        // session-aware: if activeSessionId exists, use promptAgent with sessionId for proper persistence
+        if (primaryAgentId && activeSessionId) {
+          // promptAgent creates the human message and maps to session
+          await (api as any).promptAgent(primaryAgentId, { channelId, content: text, sessionId: activeSessionId });
+          // also handle attachments via normal send if any? For now attachments go via sendMessage after prompt? Keep simple
+          if (atts.length) await send(text, atts);
+        } else if (primaryAgentId && atts.length === 0) {
+          // try session-aware prompt without explicit session (will use default persisted session)
+          // Fallback to promptAgent to ensure session persistence, otherwise use normal send
+          try {
+            await (api as any).promptAgent(primaryAgentId, { channelId, content: text });
+          } catch {
+            await send(text, atts);
+          }
+        } else {
+          await send(text, atts);
+        }
       } catch (e: any) {
         const id = ulid();
         setPendingQueue((q) => [...q, { id, text: text.trim(), files }]);
@@ -871,6 +941,24 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
                 <ContextContentFooter />
               </ContextContent>
             </Context>
+          )}
+          {isAgentChannel && primaryAgentId && (
+            <div className="flex items-center gap-1">
+              <select value={activeSessionId ?? (agentSessions as any[])?.[0]?.id ?? ""} onChange={(e) => setActiveSessionId(e.target.value)} className="h-7 rounded-md border border-[var(--border)] bg-[var(--card)] text-xs px-2 max-w-[160px]">
+                {((agentSessions as any[]) ?? []).map((s: any) => (
+                  <option key={s.id} value={s.id}>{s.title}{s.status === "archived" ? " (archived)" : ""}</option>
+                ))}
+                {((agentSessions as any[]) ?? []).length === 0 && <option value="">default</option>}
+              </select>
+              <Button variant="ghost" size="icon-sm" title="New session" onClick={async () => {
+                try {
+                  const row: any = await (api as any).createAgentSession(primaryAgentId, { channelId, title: `session-${Date.now().toString().slice(-4)}` });
+                  qc.invalidateQueries({ queryKey: ["agent-sessions", primaryAgentId, channelId] });
+                  setActiveSessionId(row.id);
+                  toast.success("New session created");
+                } catch (e: any) { toast.error(e.message); }
+              }}><Layers className="h-3.5 w-3.5" /></Button>
+            </div>
           )}
           {hasNextPage && (
             <Button variant="ghost" size="sm" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
@@ -1039,9 +1127,10 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
               <div className="flex items-center gap-2 text-xs font-semibold text-[var(--foreground)]">
                 <span className="h-6 w-6 rounded-full bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] flex items-center justify-center text-[var(--primary-foreground)]"><Bot className="h-3 w-3" /></span>
                 {agentsInWorkspace.find((a: any) => a.id === agentStream.agentId)?.name ?? "Agent"}
-                {!agentStream.text && !agentStream.thinking && agentStream.toolCalls.length === 0 && (
+                {!agentStream.text && !agentStream.thinking && agentStream.toolCalls.length === 0 && !agentStream.plan && !agentStream.permission && !agentStream.question && (
                   <Shimmer className="font-normal text-[var(--muted-foreground)]">Agent working…</Shimmer>
                 )}
+                {agentStream.queueDepth ? <span className="ml-auto text-[11px] font-normal text-amber-600">{agentStream.queueDepth} queued</span> : null}
               </div>
               {!!agentStream.thinking && (
                 <Reasoning defaultOpen>
@@ -1051,14 +1140,38 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
                   </ReasoningContent>
                 </Reasoning>
               )}
+              {agentStream.plan && (
+                <div className="rounded-lg border border-[var(--border)] bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs">
+                  <div className="font-semibold tracking-widest text-amber-700 dark:text-amber-300 text-[11px]">PLAN</div>
+                  <div className="mt-1 text-xs text-[var(--foreground)] whitespace-pre-wrap break-words">{agentStream.plan}</div>
+                </div>
+              )}
               {agentStream.toolCalls.length > 0 && (
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs">
                   <div className="font-semibold tracking-widest text-[var(--muted-foreground)] text-[11px]">TOOL CALLS</div>
                   <ul className="mt-1 space-y-1 font-mono text-[11px]">
                     {agentStream.toolCalls.map((tc, i) => (
-                      <li key={i}>· {tc.tool}{tc.args ? ` ${JSON.stringify(tc.args).slice(0, 80)}` : ""}</li>
+                      <li key={i}>· {tc.tool}{tc.args ? ` ${JSON.stringify(tc.args).slice(0, 80)}` : ""}{tc.result ? ` → ${String(tc.result).slice(0, 80)}` : ""}</li>
                     ))}
                   </ul>
+                </div>
+              )}
+              {agentStream.subagents && agentStream.subagents.length > 0 && (
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs">
+                  <div className="font-semibold tracking-widest text-[var(--muted-foreground)] text-[11px]">SUBAGENTS</div>
+                  <ul className="mt-1 space-y-1 text-[11px]">{agentStream.subagents.map((s, i) => <li key={i}>· {s.text}</li>)}</ul>
+                </div>
+              )}
+              {agentStream.permission && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs">
+                  <div className="font-semibold text-amber-800 dark:text-amber-200">Permission required</div>
+                  <div className="mt-1 text-[var(--foreground)]">{agentStream.permission.text}</div>
+                </div>
+              )}
+              {agentStream.question && (
+                <div className="rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/30 px-3 py-2 text-xs">
+                  <div className="font-semibold text-blue-800 dark:text-blue-200">Question</div>
+                  <div className="mt-1 text-[var(--foreground)]">{agentStream.question.text}</div>
                 </div>
               )}
               {agentStream.text && <MessageResponse className="text-sm break-words">{agentStream.text}</MessageResponse>}
@@ -1073,6 +1186,55 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
         </ConversationContent>
         <ConversationScrollButton />
       </Conversation>
+
+      {/* permission prompt */}
+      <AlertDialog open={!!agentStream?.permission} onOpenChange={(o) => { if (!o) useChatStore.getState().clearAgentPermission(channelId); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Agent wants permission</AlertDialogTitle>
+            <AlertDialogDescription className="whitespace-pre-wrap break-words">{agentStream?.permission?.text ?? ""}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              const p = useChatStore.getState().agentStreams[channelId];
+              if (p?.permission?.id && primaryAgentId) (api as any).approveAgentPermission(primaryAgentId, { permissionId: p.permission.id, decision: "deny", sessionId: p.sessionId ?? activeSessionId }).catch(() => {});
+              useChatStore.getState().clearAgentPermission(channelId);
+            }}>Deny</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              const p = useChatStore.getState().agentStreams[channelId];
+              if (p?.permission?.id && primaryAgentId) (api as any).approveAgentPermission(primaryAgentId, { permissionId: p.permission.id, decision: "allow", sessionId: p.sessionId ?? activeSessionId }).catch(() => {});
+              useChatStore.getState().clearAgentPermission(channelId);
+              toast.success("Permission granted");
+            }}>Allow</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* question prompt */}
+      <Dialog open={!!agentStream?.question} onOpenChange={(o) => { if (!o) useChatStore.getState().clearAgentQuestion(channelId); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Agent has a question</DialogTitle>
+            <DialogDescription className="whitespace-pre-wrap break-words">{agentStream?.question?.text ?? ""}</DialogDescription>
+          </DialogHeader>
+          <Textarea value={questionAnswer} onChange={(e) => setQuestionAnswer(e.target.value)} placeholder="Your answer…" className="min-h-[80px]" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { useChatStore.getState().clearAgentQuestion(channelId); setQuestionAnswer(""); }}>Cancel</Button>
+            <Button onClick={async () => {
+              const p = useChatStore.getState().agentStreams[channelId];
+              if (!p?.question?.id || !primaryAgentId) return;
+              try {
+                await (api as any).answerAgentQuestion(primaryAgentId, { questionId: p.question.id, answer: questionAnswer, sessionId: p.sessionId ?? activeSessionId });
+                // also send as message for history
+                await (api as any).promptAgent(primaryAgentId, { channelId, content: questionAnswer, sessionId: p.sessionId ?? activeSessionId });
+                toast.success("Answer sent");
+              } catch (e: any) { toast.error(e.message); }
+              useChatStore.getState().clearAgentQuestion(channelId);
+              setQuestionAnswer("");
+            }}>Send answer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="relative border-t border-[var(--border)] p-3 bg-[var(--card)] shrink-0 w-full">
         {ac.open && acMatches.length > 0 && (
@@ -1093,16 +1255,33 @@ export function ChannelView({ channelId, workspaceId, channel }: Props) {
             ))}
           </div>
         )}
+        {slash.open && slashMatches.length > 0 && (
+          <div className="absolute bottom-full left-3 right-3 mb-2 rounded-xl border border-[var(--border)] bg-popover shadow-[var(--shadow-card)] overflow-hidden z-10">
+            <div className="px-3 py-1.5 text-xs font-semibold tracking-widest text-[var(--muted-foreground)] border-b border-[var(--border)]">COMMANDS</div>
+            {slashMatches.map((c) => (
+              <button key={c.id} onMouseDown={(e) => { e.preventDefault(); pickSlash(c); }} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--muted)] text-left">
+                <span className="h-6 w-6 rounded-full bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)] text-xs">/</span>
+                <span className="text-sm font-mono text-[var(--foreground)]">{c.label}</span>
+                <span className="text-xs text-[var(--muted-foreground)] ml-auto">{c.desc}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <ChatComposer
           value={input}
           onValueChange={handleInput}
           onKeyDown={(e) => {
+            if (slash.open && slashMatches.length > 0 && (e.key === "Enter" || e.key === "Tab")) {
+              e.preventDefault();
+              pickSlash(slashMatches[0]);
+              return;
+            }
             if (ac.open && acMatches.length > 0 && (e.key === "Enter" || e.key === "Tab")) {
               e.preventDefault();
               pickMention(acMatches[0]);
               return;
             }
-            if (e.key === "Escape") setAc({ open: false, q: "" });
+            if (e.key === "Escape") { setAc({ open: false, q: "" }); setSlash({ open: false, q: "" }); }
           }}
           onSubmit={handlePromptSubmitQueued}
           replyTo={replyTo}

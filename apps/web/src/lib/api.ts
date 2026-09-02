@@ -89,11 +89,25 @@ export const api = {
   agentPreview: (data: { endpoint: string; authSecret?: string; transport?: string }) =>
     req(`/api/agents/preview`, { method: "POST", body: JSON.stringify(data) }),
   updateAgent: (id: string, data: any) => req(`/api/agents/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  promptAgent: (id: string, data: { channelId: string; content: string; parentId?: string | null }) =>
+  promptAgent: (id: string, data: { channelId: string; content: string; parentId?: string | null; sessionId?: string | null; queueMode?: string }) =>
     req(`/api/agents/${id}/prompt`, { method: "POST", body: JSON.stringify(data) }),
   createAgentDm: (agentId: string, workspaceId: string) =>
     req(`/api/agents/${agentId}/dm`, { method: "POST", body: JSON.stringify({ workspaceId }) }),
   agentChannels: (id: string) => req(`/api/agents/${id}/channels`),
+  agentSessions: (id: string, channelId?: string) => req(`/api/agents/${id}/sessions${channelId ? `?channelId=${channelId}` : ""}`),
+  createAgentSession: (id: string, data: { channelId: string; title?: string; systemPrompt?: string | null }) =>
+    req(`/api/agents/${id}/sessions`, { method: "POST", body: JSON.stringify(data) }),
+  updateAgentSession: (id: string, sessionId: string, data: any) =>
+    req(`/api/agents/${id}/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  terminateAgentSession: (id: string, sessionId: string) =>
+    req(`/api/agents/${id}/sessions/${sessionId}/terminate`, { method: "POST", body: JSON.stringify({}) }),
+  agentSkills: (id: string) => req(`/api/agents/${id}/skills`),
+  updateAgentSkills: (id: string, data: any) => req(`/api/agents/${id}/skills`, { method: "PATCH", body: JSON.stringify(data) }),
+  updateAgentConfig: (id: string, data: any) => req(`/api/agents/${id}/config`, { method: "PATCH", body: JSON.stringify(data) }),
+  approveAgentPermission: (id: string, data: { permissionId: string; decision: string; sessionId?: string | null }) =>
+    req(`/api/agents/${id}/approve`, { method: "POST", body: JSON.stringify(data) }),
+  answerAgentQuestion: (id: string, data: { questionId: string; answer: string; sessionId?: string | null }) =>
+    req(`/api/agents/${id}/answer`, { method: "POST", body: JSON.stringify(data) }),
 };
 
 export { API_URL };
